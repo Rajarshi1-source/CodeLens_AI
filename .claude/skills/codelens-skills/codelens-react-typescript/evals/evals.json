@@ -1,0 +1,61 @@
+{
+  "skill_name": "codelens-react-typescript",
+  "notes": "Prompts mix triggering tests (casual CodeLens frontend phrasings) and output-quality tests (streaming hook with seq dedup + transitions, shared STOMP client, branded IDs + discriminated unions, REST+WS merge, Zod boundary validation). Assertions are objectively checkable.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build the React hook for CodeLens that subscribes to a PR's review topic and shows AI comments appearing word-by-word as they stream in.",
+      "expected_output": "A useReviewStream(prId) hook subscribing over STOMP, accumulating tokens keyed on (file,line) with immutable appends, dropping tokens whose seq <= lastSeq (a useRef), wrapping state updates in startTransition, and cleaning up the subscription on unmount.",
+      "files": [],
+      "assertions": [
+        { "text": "Keys streaming comments on (file, line) and appends fragments immutably", "type": "behavioral" },
+        { "text": "Drops out-of-order/replayed tokens using a seq compared against a ref", "type": "behavioral" },
+        { "text": "Wraps high-frequency token updates in startTransition", "type": "contains" },
+        { "text": "Unsubscribes in the effect cleanup", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Set up the WebSocket/STOMP client for the CodeLens app so it's a single shared connection that reconnects automatically.",
+      "expected_output": "One Client instance held in a provider via useRef (or a module singleton), activated once with reconnectDelay/heartbeats, shared via context — never recreated per render.",
+      "files": [],
+      "assertions": [
+        { "text": "Creates exactly one STOMP client and shares it (context or ref), not one per component/render", "type": "behavioral" },
+        { "text": "Configures reconnectDelay and heartbeats", "type": "contains" },
+        { "text": "Uses SockJS as the webSocketFactory", "type": "contains" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Type the CodeLens domain model so a pull-request id can never be passed where a repository id is expected, and so review status is handled exhaustively.",
+      "expected_output": "Branded string types (PrId, RepoId), a ReviewStatus string-literal union, and exhaustive handling via a never-guard.",
+      "files": [],
+      "assertions": [
+        { "text": "Defines branded types for PrId and RepoId", "type": "behavioral" },
+        { "text": "Models ReviewStatus as a discriminated/string-literal union", "type": "behavioral" },
+        { "text": "Handles the union exhaustively with an assertNever / never guard", "type": "behavioral" },
+        { "text": "Does NOT use any to bypass type checking", "type": "absent" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "When a CodeLens user opens a PR whose review is already in progress, show the comments that were already saved and keep streaming the remaining ones without duplicates.",
+      "expected_output": "A pattern that fetches persisted comments via React Query, subscribes to live tokens via the streaming hook, and merges them by (file,line) so a live comment supersedes the persisted one with the same anchor.",
+      "files": [],
+      "assertions": [
+        { "text": "Fetches persisted comments via React Query (server cache) separately from the live WebSocket stream", "type": "behavioral" },
+        { "text": "Merges persisted and live comments by their (file, line) anchor without duplication", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Validate the CodeLens PR-list API response at the boundary so a malformed payload fails loudly instead of producing undefined deep in the UI.",
+      "expected_output": "A Zod schema parsed in the service layer (schema.parse), with the TypeScript type inferred from the schema via z.infer.",
+      "files": [],
+      "assertions": [
+        { "text": "Defines a Zod schema and calls parse (or safeParse) on the response", "type": "behavioral" },
+        { "text": "Infers the TS type from the schema via z.infer rather than hand-writing a duplicate type", "type": "behavioral" }
+      ]
+    }
+  ]
+}

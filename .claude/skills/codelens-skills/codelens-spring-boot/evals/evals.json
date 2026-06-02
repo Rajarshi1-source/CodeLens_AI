@@ -1,0 +1,77 @@
+{
+  "skill_name": "codelens-spring-boot",
+  "notes": "Prompts mix triggering tests (casual CodeLens phrasings that should pull this skill) and output-quality tests (idempotent webhook, effectively-once consumer, cross-pod WebSocket, OAuth2 stateless security, schema, Resilience4j). Assertions are objectively checkable.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Build the endpoint that receives GitHub PR webhooks for CodeLens. GitHub sometimes delivers the same event more than once and we must not run duplicate reviews.",
+      "expected_output": "A controller that verifies the HMAC signature FIRST, then dedups on X-GitHub-Delivery via Redis SETNX (setIfAbsent), returns 200 for duplicates, and returns 202 after enqueuing — never runs the review inline.",
+      "files": [],
+      "assertions": [
+        { "text": "Verifies the X-Hub-Signature-256 HMAC before any other work", "type": "behavioral" },
+        { "text": "Dedups on X-GitHub-Delivery using Redis setIfAbsent (SETNX) with a TTL", "type": "behavioral" },
+        { "text": "Returns 202/Accepted after enqueuing rather than processing the review synchronously", "type": "behavioral" },
+        { "text": "Uses constant-time comparison (MessageDigest.isEqual) for the signature", "type": "contains" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Write the worker that consumes review jobs from the Redis Stream, with a dead-letter queue for jobs that keep failing.",
+      "expected_output": "A consumer-group reader that skips already-reviewed (pr_id, head_sha), acks only after success, counts retries via XPENDING, and after N failures routes to a DLQ stream and marks the PR REVIEW_FAILED.",
+      "files": [],
+      "assertions": [
+        { "text": "Reads via a Redis Streams consumer group", "type": "behavioral" },
+        { "text": "Acknowledges the message only after the review succeeds", "type": "behavioral" },
+        { "text": "Skips jobs whose (pr_id, head_sha) already has a review session", "type": "behavioral" },
+        { "text": "Routes to a dead-letter stream after a max retry count and marks the PR REVIEW_FAILED", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Configure WebSockets for CodeLens so that when we run two backend pods, a comment streamed by one pod still reaches a client connected to the other pod.",
+      "expected_output": "STOMP over SockJS config (topic per PR) PLUS a Redis Pub/Sub relay so tokens fan out across pods; mention of per-session sequence numbers for resumable streams.",
+      "files": [],
+      "assertions": [
+        { "text": "Configures STOMP endpoints with SockJS and a /topic broker", "type": "behavioral" },
+        { "text": "Relays messages across pods via Redis Pub/Sub (not relying on the pod-local simple broker alone)", "type": "behavioral" },
+        { "text": "References per-session sequence numbers enabling resumable streams", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Set up Spring Security for CodeLens: GitHub OAuth login, a stateless JSON API, and the webhook endpoint must be reachable without a session.",
+      "expected_output": "A SecurityFilterChain with STATELESS session policy, CSRF disabled, oauth2Login, the webhook path permitAll (authenticated by HMAC instead), and a note that GitHub tokens are encrypted at rest / never exposed in DTOs.",
+      "files": [],
+      "assertions": [
+        { "text": "Sets SessionCreationPolicy.STATELESS", "type": "contains" },
+        { "text": "Permits the /api/webhooks/github path without authentication", "type": "behavioral" },
+        { "text": "Enables GitHub OAuth2 login", "type": "behavioral" },
+        { "text": "Notes that access_token / webhook_secret must never appear in a DTO or log", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Give me the PostgreSQL tables for CodeLens review sessions and review comments, including whatever constraint enforces that a PR commit is reviewed only once.",
+      "expected_output": "DDL for review_sessions and review_comments with UNIQUE(pr_id, head_sha) on sessions, JSONB metadata, a tsvector GIN index for comment search, and prompt_version/model_used columns.",
+      "files": [],
+      "assertions": [
+        { "text": "review_sessions has a UNIQUE(pr_id, head_sha) constraint", "type": "behavioral" },
+        { "text": "Includes a JSONB metadata column", "type": "contains" },
+        { "text": "Adds a GIN index on to_tsvector(comment_text) for full-text search", "type": "behavioral" },
+        { "text": "review_sessions records the prompt_version and model_used", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Wrap the LLM calls in the CodeLens review service so a provider outage degrades gracefully instead of taking down the whole app.",
+      "expected_output": "Resilience4j circuit breaker + retry (backoff + jitter) + timeout + bulkhead, a fallback to the secondary provider, and degradation to REVIEW_UNAVAILABLE on full outage.",
+      "files": [],
+      "assertions": [
+        { "text": "Applies a Resilience4j circuit breaker with a fallback method", "type": "behavioral" },
+        { "text": "Adds retry with exponential backoff and jitter and a timeout", "type": "behavioral" },
+        { "text": "Falls back to a secondary provider or degrades the PR to REVIEW_UNAVAILABLE", "type": "behavioral" },
+        { "text": "Uses separate bulkheads for the LLM and GitHub call pools", "type": "behavioral" }
+      ]
+    }
+  ]
+}

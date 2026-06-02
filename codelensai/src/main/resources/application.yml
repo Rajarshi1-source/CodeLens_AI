@@ -1,0 +1,112 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: codelensai
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/codelensai}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+  jpa:
+    hibernate:
+      ddl-auto: none
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+    defer-datasource-initialization: false
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+  security:
+    oauth2:
+      client:
+        registration:
+          github:
+            client-id: ${GITHUB_CLIENT_ID:placeholder-client-id}
+            client-secret: ${GITHUB_CLIENT_SECRET:placeholder-client-secret}
+            scope:
+              - read:user
+              - user:email
+              - repo
+
+server:
+  port: 8080
+  shutdown: graceful
+
+codelens:
+  llm:
+    provider: ${LLM_PROVIDER:local}        # local | gpt5 | claude
+    review-model: ${REVIEW_MODEL:local-mock}
+    summary-model: ${SUMMARY_MODEL:local-mock}
+    temperature: 0.1
+    max-output-tokens: 2000
+    max-tokens-per-chunk: 4000
+    confidence-threshold: 0.4
+    fallback-provider: ${LLM_FALLBACK_PROVIDER:local}
+    daily-token-budget: ${LLM_DAILY_TOKEN_BUDGET:2000000}
+  prompts:
+    review-version: ${REVIEW_PROMPT_VERSION:v1}
+  encryption:
+    secret: ${CODELENS_ENCRYPTION_SECRET:dev-only-32-byte-secret-key-change!!}
+
+github:
+  webhook-secret: ${GITHUB_WEBHOOK_SECRET:dev-webhook-secret}
+  api-base-url: ${GITHUB_API_BASE_URL:https://api.github.com}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: codelensai
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      llm:
+        failureRateThreshold: 50
+        slidingWindowSize: 20
+        waitDurationInOpenState: 30s
+      github:
+        failureRateThreshold: 50
+        slidingWindowSize: 20
+        waitDurationInOpenState: 15s
+  retry:
+    instances:
+      llm:
+        maxAttempts: 3
+        waitDuration: 1s
+        enableExponentialBackoff: true
+        enableRandomizedWait: true
+      github:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+  timelimiter:
+    instances:
+      llm:
+        timeoutDuration: 60s
+      github:
+        timeoutDuration: 10s
+  bulkhead:
+    instances:
+      llm:
+        maxConcurrentCalls: 16
+      github:
+        maxConcurrentCalls: 8

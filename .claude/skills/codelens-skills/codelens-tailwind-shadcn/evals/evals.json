@@ -1,0 +1,61 @@
+{
+  "skill_name": "codelens-tailwind-shadcn",
+  "notes": "Prompts mix triggering tests (casual CodeLens UI phrasings) and output-quality tests (OKLCH token system, single severity source of truth with color+shape, Tailwind v4 wiring, react-diff-viewer-continued via tokens, accessibility). Assertions are objectively checkable.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Style the CodeLens severity badge for critical, warning, and suggestion.",
+      "expected_output": "A SeverityBadge that reads from a single SEVERITY_STYLES map using OKLCH severity tokens (var(--severity-*)), and conveys severity with a shape/label in addition to color (e.g. a dot + the word).",
+      "files": [],
+      "assertions": [
+        { "text": "Maps all three severities from a single source-of-truth object, not ad-hoc per component", "type": "behavioral" },
+        { "text": "Uses the --severity-* CSS variable tokens rather than hardcoded hex/rgb", "type": "behavioral" },
+        { "text": "Conveys severity with color AND a non-color cue (shape or text label)", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Set up theming and dark mode for the CodeLens app.",
+      "expected_output": "OKLCH CSS variables defined fully in :root and .dark, Tailwind v4 wiring with @custom-variant dark and an @theme inline mapping so bg-card etc. resolve, plus the severity and diff-chrome tokens.",
+      "files": [],
+      "assertions": [
+        { "text": "Defines colors in OKLCH, not HSL/hex", "type": "behavioral" },
+        { "text": "Declares the full token set in both :root and .dark", "type": "behavioral" },
+        { "text": "Uses Tailwind v4 syntax: @custom-variant dark and @theme inline (no tailwind.config.js darkMode)", "type": "behavioral" },
+        { "text": "Does NOT introduce a v3 tailwind.config.js darkMode: 'class' setup", "type": "absent" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Build the CodeLens inline comment component that shows a blinking cursor while its text is still streaming and settles when done.",
+      "expected_output": "A Card-based component with a severity-colored left border via var(--severity-*), the SeverityBadge, optional confidence, and an animated cursor shown only while isStreaming is true.",
+      "files": [],
+      "assertions": [
+        { "text": "Shows an animated cursor only while the comment isStreaming", "type": "behavioral" },
+        { "text": "Colors the accent/border from a --severity-* token", "type": "behavioral" },
+        { "text": "Reuses SeverityBadge rather than re-implementing severity styling", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Lay out the CodeLens PR review page with the diff on one side and a comment rail on the other.",
+      "expected_output": "A Tabs layout (Diff/Summary/Comments) with a grid giving the diff the dominant column and a fixed-width comment rail, each in a ScrollArea; the diff rendered with react-diff-viewer-continued themed via the CSS-var tokens.",
+      "files": [],
+      "assertions": [
+        { "text": "Uses shadcn Tabs and a grid with the diff dominant and a fixed-width rail", "type": "behavioral" },
+        { "text": "Renders the diff with react-diff-viewer-continued styled from the CSS-var tokens", "type": "behavioral" },
+        { "text": "Wraps long scrollable regions in ScrollArea", "type": "contains" }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Make the CodeLens dashboard: stat cards and a chart of findings by severity.",
+      "expected_output": "A responsive Card grid of StatsCards plus a SeverityChart whose segments use the severity tokens and are labeled (not color-only), keeping WCAG-considerate contrast in both themes.",
+      "files": [],
+      "assertions": [
+        { "text": "Uses a responsive shadcn Card grid for the stats", "type": "behavioral" },
+        { "text": "Colors chart segments from the --severity-* tokens and labels them (not color alone)", "type": "behavioral" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "skill_name": "codelens-java21",
+  "notes": "Prompts mix triggering tests (would a real CodeLens phrasing pull this skill?) and output-quality tests (does the output follow the locked Java 21 conventions: virtual threads, records, sealed adapter, exhaustive switch, no preview APIs). Assertions are objectively checkable.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "In the CodeLens backend, write the component that reviews every diff chunk of a PR concurrently. One chunk failing (a timeout or bad LLM output) must not lose the comments from the other chunks.",
+      "expected_output": "A service using Executors.newVirtualThreadPerTaskExecutor(), submitting one task per chunk, joining each Future with a per-future try/catch so failures are isolated. No fixed-size pool, no preview APIs.",
+      "files": [],
+      "assertions": [
+        { "text": "Uses Executors.newVirtualThreadPerTaskExecutor()", "type": "contains" },
+        { "text": "Catches per-future exceptions so one chunk failure does not abort the others", "type": "behavioral" },
+        { "text": "Does NOT use a fixed-size thread pool (newFixedThreadPool / Executors.newFixedThreadPool)", "type": "absent" },
+        { "text": "Does NOT use StructuredTaskScope or any --enable-preview API", "type": "absent" }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Define the data types the review pipeline streams: the per-token fragment pushed over WebSocket and the completed, validated comment. Severity is critical/warning/suggestion.",
+      "expected_output": "Java records (not POJOs) for the token and comment, a Severity enum, and a compact constructor validating confidence in [0,1].",
+      "files": [],
+      "assertions": [
+        { "text": "Declares the DTOs as record types, not classes with getters/setters", "type": "behavioral" },
+        { "text": "Defines an enum Severity with CRITICAL, WARNING, SUGGESTION", "type": "contains" },
+        { "text": "Validates confidence range in a compact constructor", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Set up the LLM provider in CodeLens so we can switch between a GPT-5 provider and a Claude provider without recompiling, and so the compiler forces us to handle every provider in any dispatch logic.",
+      "expected_output": "A sealed interface LlmReviewProvider permitting the concrete providers, with a providerId() method and Flux<ReviewToken> streamReview(...); selection driven by config; exhaustive switch examples.",
+      "files": [],
+      "assertions": [
+        { "text": "Declares a sealed interface with a permits clause listing the providers", "type": "behavioral" },
+        { "text": "Provider is selected from configuration, not hardcoded in a service", "type": "behavioral" },
+        { "text": "Uses an exhaustive switch over the sealed type with no default branch", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Add the helper that turns a review comment's severity into a labeled, emoji-prefixed string for the GitHub summary.",
+      "expected_output": "A switch pattern-matching expression over the Severity enum, exhaustive (no default needed).",
+      "files": [],
+      "assertions": [
+        { "text": "Uses a switch expression over Severity", "type": "behavioral" },
+        { "text": "Switch is exhaustive over the enum constants with no default branch", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Write an integration test proving CodeLens cannot create two review sessions for the same PR and the same commit SHA.",
+      "expected_output": "A TestContainers test using postgres:16-alpine wired via @DynamicPropertySource, asserting the second save of the same (pr_id, head_sha) throws DataIntegrityViolationException.",
+      "files": [],
+      "assertions": [
+        { "text": "Uses TestContainers with a postgres:16 image, not an embedded/in-memory DB", "type": "behavioral" },
+        { "text": "Wires the container via @DynamicPropertySource", "type": "contains" },
+        { "text": "Asserts a DataIntegrityViolationException (or constraint violation) on the duplicate (pr_id, head_sha)", "type": "behavioral" }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "For the repo-aware context feature, fetch the diff, the changed function's callers, and its test files in parallel — but if any of the three fails, abandon the whole context and surface the error.",
+      "expected_output": "Virtual-thread executor with three Futures; on failure of any, cancel(true) the others and throw. Explicitly NOT StructuredTaskScope (preview).",
+      "files": [],
+      "assertions": [
+        { "text": "Runs the three fetches on a virtual-thread executor", "type": "behavioral" },
+        { "text": "On any failure, cancels the sibling futures before throwing (fail-together)", "type": "behavioral" },
+        { "text": "Does NOT use StructuredTaskScope", "type": "absent" }
+      ]
+    }
+  ]
+}

@@ -51,7 +51,9 @@ jobs:
           SPRING_DATASOURCE_PASSWORD: postgres
           SPRING_REDIS_HOST: localhost
           SPRING_REDIS_PORT: "6379"
-        run: ./mvnw clean package -B
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -B
 
   review-quality-eval:
     name: Review-quality eval gate
@@ -90,7 +92,9 @@ jobs:
           cache: maven
       - name: Build backend jar
         working-directory: codelensai
-        run: ./mvnw clean package -DskipTests -B
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests -B
       - name: Boot backend (local provider)
         working-directory: codelensai
         env:

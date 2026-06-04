@@ -2,11 +2,14 @@ package com.codelensai.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 /**
  * GitHub OAuth2 login + a mostly-open public surface for infrastructure endpoints.
@@ -19,6 +22,10 @@ import org.springframework.security.web.SecurityFilterChain;
  * OAuth2 login session, so session management is left at its default (IF_REQUIRED) — STATELESS would
  * break the OAuth2 authorization-code redirect. The {@code oauth2ResourceServer().jwt()} wiring is
  * intentionally omitted to avoid a missing-{@code JwtDecoder} startup failure.
+ *
+ * <p>SPA support: unauthenticated calls to {@code /api/**} return {@code 401} (so the React SPA's
+ * fetch/Zod layer can react cleanly) instead of the default {@code 302} redirect to GitHub; top-level
+ * browser navigation still redirects into the OAuth2 login flow.
  */
 @Configuration
 @EnableWebSecurity
@@ -43,6 +50,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/repos/**", "/api/prs/**", "/api/reviews/**", "/api/dashboard/**")
                         .authenticated()
                         .anyRequest().authenticated())
+                .exceptionHandling(ex -> ex.defaultAuthenticationEntryPointFor(
+                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                        PathPatternRequestMatcher.withDefaults().matcher("/api/**")))
                 .oauth2Login(oauth2 -> oauth2.successHandler(oauth2SuccessHandler))
                 .logout(Customizer.withDefaults())
                 .build();

@@ -53,6 +53,8 @@ codelens:
     confidence-threshold: 0.4
     fallback-provider: ${LLM_FALLBACK_PROVIDER:local}
     daily-token-budget: ${LLM_DAILY_TOKEN_BUDGET:2000000}
+    openai-api-key: ${OPENAI_API_KEY:}
+    openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
   prompts:
     review-version: ${REVIEW_PROMPT_VERSION:v1}
   encryption:

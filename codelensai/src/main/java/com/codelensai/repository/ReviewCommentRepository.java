@@ -12,6 +12,8 @@ public interface ReviewCommentRepository extends JpaRepository<ReviewCommentEnti
 
     List<ReviewCommentEntity> findByPrIdOrderByFilePathAscLineNumberAsc(Long prId);
 
+    List<ReviewCommentEntity> findBySessionId(Long sessionId);
+
     @Modifying
     @Query("delete from ReviewCommentEntity c where c.sessionId = :sessionId")
     void deleteBySessionId(@Param("sessionId") Long sessionId);

@@ -1,6 +1,8 @@
 package com.codelensai.model.entity;
 
+import com.codelensai.security.CryptoStringConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -30,7 +32,8 @@ public class User {
     @Column(name = "avatar_url", length = 500)
     private String avatarUrl;
 
-    /** Encrypted at rest. Never expose through a DTO or toString(). */
+    /** Encrypted at rest (AES-GCM). Never expose through a DTO or toString(). */
+    @Convert(converter = CryptoStringConverter.class)
     @Column(name = "access_token", nullable = false, length = 512)
     private String accessToken;
 

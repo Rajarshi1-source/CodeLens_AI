@@ -24,6 +24,12 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private final GitHubOAuth2SuccessHandler oauth2SuccessHandler;
+
+    public SecurityConfig(GitHubOAuth2SuccessHandler oauth2SuccessHandler) {
+        this.oauth2SuccessHandler = oauth2SuccessHandler;
+    }
+
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         return http
@@ -34,8 +40,10 @@ public class SecurityConfig {
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/internal/**").permitAll()   // internal eval-only endpoint
+                        .requestMatchers("/api/repos/**", "/api/prs/**", "/api/reviews/**", "/api/dashboard/**")
+                        .authenticated()
                         .anyRequest().authenticated())
-                .oauth2Login(Customizer.withDefaults())
+                .oauth2Login(oauth2 -> oauth2.successHandler(oauth2SuccessHandler))
                 .logout(Customizer.withDefaults())
                 .build();
     }

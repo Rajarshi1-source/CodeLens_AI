@@ -1,6 +1,8 @@
 package com.codelensai.model.entity;
 
+import com.codelensai.security.CryptoStringConverter;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -32,7 +34,8 @@ public class Repository {
     @Column(name = "webhook_id")
     private Long webhookId;
 
-    /** Encrypted at rest. Never expose through a DTO or toString(). */
+    /** Encrypted at rest (AES-GCM). Never expose through a DTO or toString(). */
+    @Convert(converter = CryptoStringConverter.class)
     @Column(name = "webhook_secret", length = 512)
     private String webhookSecret;
 

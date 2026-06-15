@@ -13,7 +13,7 @@ import { PRStatusBadge } from '@/components/pr/PRStatusBadge';
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { ErrorState } from '@/components/common/ErrorState';
 import { usePrReview } from '@/hooks/usePrReview';
-import { usePullRequest, useReReview } from '@/hooks/usePullRequests';
+import { usePrDiff, usePullRequest, useReReview } from '@/hooks/usePullRequests';
 import { SEVERITY_ORDER } from '@/lib/severity';
 import { PrId, type ReviewStatus, type Severity } from '@/types/domain';
 
@@ -23,6 +23,7 @@ export function PRReview() {
 
   const pr = usePullRequest(prId);
   const { comments, status, isLoading } = usePrReview(prId);
+  const diff = usePrDiff(prId);
   const reReview = useReReview();
 
   const severityCounts = useMemo(() => {
@@ -77,7 +78,7 @@ export function PRReview() {
 
       <Tabs defaultValue="diff" className="flex min-h-0 flex-1 flex-col">
         <TabsList className="self-start">
-          <TabsTrigger value="diff">Findings</TabsTrigger>
+          <TabsTrigger value="diff">Diff</TabsTrigger>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="comments">Comments ({comments.length})</TabsTrigger>
         </TabsList>
@@ -85,7 +86,7 @@ export function PRReview() {
         <TabsContent value="diff" className="mt-3 min-h-0 flex-1">
           <div className="grid h-full grid-cols-1 gap-0 overflow-hidden rounded-lg border lg:grid-cols-[1fr_360px]">
             <ScrollArea className="h-full">
-              <DiffViewer comments={comments} />
+              <DiffViewer diff={diff.data} comments={comments} />
             </ScrollArea>
             <ScrollArea className="hidden h-full border-l lg:block">
               <CommentRail comments={comments} />

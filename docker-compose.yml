@@ -1,0 +1,151 @@
+# CodeLens AI — full local stack.
+#   cp .env.example .env   # fill in GitHub OAuth + (optional) OpenAI keys
+#   docker compose up -d --build
+#
+# Entry points:
+#   Frontend (SPA + same-origin /api,/ws proxy) -> http://localhost:3000
+#   Backend  (direct, for API/actuator/eval)     -> http://localhost:8080
+#   Prometheus                                    -> http://localhost:9090
+#   Grafana                                       -> http://localhost:3001  (admin / ${GRAFANA_ADMIN_PASSWORD})
+#   Langfuse                                      -> http://localhost:3002
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: codelensai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Idempotent schema (CREATE TABLE IF NOT EXISTS); the backend also re-runs it on boot.
+      - ./codelensai/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./codelensai
+    # Local build tags this; on a deploy host set BACKEND_IMAGE=<user>/codelensai-backend:latest
+    # so `docker compose pull` fetches the CI-pushed image instead of building.
+    image: ${BACKEND_IMAGE:-codelensai-backend:latest}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/codelensai
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: "6379"
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-dev-webhook-secret}
+      GITHUB_API_BASE_URL: ${GITHUB_API_BASE_URL:-https://api.github.com}
+      LLM_PROVIDER: ${LLM_PROVIDER:-local}
+      REVIEW_MODEL: ${REVIEW_MODEL:-local-mock}
+      SUMMARY_MODEL: ${SUMMARY_MODEL:-local-mock}
+      LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-local}
+      LLM_DAILY_TOKEN_BUDGET: ${LLM_DAILY_TOKEN_BUDGET:-2000000}
+      REVIEW_PROMPT_VERSION: ${REVIEW_PROMPT_VERSION:-v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      CODELENS_ENCRYPTION_SECRET: ${CODELENS_ENCRYPTION_SECRET:-change-me-to-a-random-32-byte-secret-key}
+      # Langfuse tracing is off unless you create a project and supply keys (see .env.example).
+      CODELENS_LANGFUSE_ENABLED: ${CODELENS_LANGFUSE_ENABLED:-false}
+      CODELENS_LANGFUSE_HOST: ${CODELENS_LANGFUSE_HOST:-http://langfuse:3000}
+      CODELENS_LANGFUSE_PUBLIC_KEY: ${CODELENS_LANGFUSE_PUBLIC_KEY:-}
+      CODELENS_LANGFUSE_SECRET_KEY: ${CODELENS_LANGFUSE_SECRET_KEY:-}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    build: ./frontend
+    image: ${FRONTEND_IMAGE:-codelensai-frontend:latest}
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+  prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      - backend
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+
+  # --- LLM observability (Langfuse v2 + its own Postgres) ---
+  langfuse-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: langfuse
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LANGFUSE_DB_PASSWORD:-postgres}
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  langfuse:
+    image: langfuse/langfuse:2
+    depends_on:
+      langfuse-db:
+        condition: service_healthy
+    ports:
+      - "3002:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:${LANGFUSE_DB_PASSWORD:-postgres}@langfuse-db:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3002
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-changeme-langfuse-nextauth-secret}
+      SALT: ${LANGFUSE_SALT:-changeme-langfuse-salt}
+      TELEMETRY_ENABLED: "false"
+
+volumes:
+  postgres_data:
+  redis_data:
+  grafana_data:
+  langfuse_db_data:

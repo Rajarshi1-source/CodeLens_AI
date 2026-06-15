@@ -8,6 +8,7 @@ import com.codelensai.model.dto.ReviewToken;
 import com.codelensai.model.entity.ReviewSession;
 import com.codelensai.model.enums.ReviewStatus;
 import com.codelensai.model.enums.Severity;
+import com.codelensai.observability.LangfuseTracer;
 import com.codelensai.websocket.WebSocketNotifier;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -49,6 +50,7 @@ public class ReviewService {
     private final PromptRepository prompts;
     private final LlmProperties llmProperties;
     private final MeterRegistry meterRegistry;
+    private final LangfuseTracer langfuseTracer;
 
     public ReviewService(GitHubService gitHubService,
                          DiffChunkerService chunker,
@@ -57,7 +59,8 @@ public class ReviewService {
                          ReviewPersistenceService persistence,
                          PromptRepository prompts,
                          LlmProperties llmProperties,
-                         MeterRegistry meterRegistry) {
+                         MeterRegistry meterRegistry,
+                         LangfuseTracer langfuseTracer) {
         this.gitHubService = gitHubService;
         this.chunker = chunker;
         this.aiReviewService = aiReviewService;
@@ -66,6 +69,7 @@ public class ReviewService {
         this.prompts = prompts;
         this.llmProperties = llmProperties;
         this.meterRegistry = meterRegistry;
+        this.langfuseTracer = langfuseTracer;
     }
 
     /** Entry point invoked by {@link ReviewJobConsumer} for one queued job. */
@@ -104,6 +108,8 @@ public class ReviewService {
 
         meterRegistry.timer("review.duration").record(Duration.ofMillis(elapsed));
         meterRegistry.counter("llm.tokens.total").increment(agg.tokenCount());
+        langfuseTracer.traceReview(prId, headSha, aiReviewService.providerId(),
+                prompts.reviewVersion(), agg.tokenCount(), elapsed, comments.size());
         notifier.sendStatus(prId, ReviewStatus.COMPLETED);
         log.info("Review complete prId={} comments={} elapsedMs={}", prId, comments.size(), elapsed);
     }

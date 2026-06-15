@@ -18,6 +18,15 @@ export function usePullRequest(prId: PrId) {
   });
 }
 
+/** The PR's raw unified diff (cached server-side). Empty string when unavailable. */
+export function usePrDiff(prId: PrId) {
+  return useQuery<string>({
+    queryKey: ['diff', prId],
+    queryFn: () => prService.diff(prId),
+    staleTime: 60_000,
+  });
+}
+
 /** Re-review mutation; invalidates the PR lists + this PR's comments (read-your-writes). */
 export function useReReview() {
   const qc = useQueryClient();

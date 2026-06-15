@@ -39,8 +39,11 @@ spring:
               - repo
 
 server:
-  port: 8080
+  port: ${SERVER_PORT:8080}
   shutdown: graceful
+  # Behind the frontend nginx proxy, build OAuth2 redirect URIs from X-Forwarded-* headers
+  # so the GitHub callback stays same-origin (http://host:3000/login/oauth2/code/github).
+  forward-headers-strategy: framework
 
 codelens:
   llm:
@@ -59,6 +62,11 @@ codelens:
     review-version: ${REVIEW_PROMPT_VERSION:v1}
   encryption:
     secret: ${CODELENS_ENCRYPTION_SECRET:dev-only-32-byte-secret-key-change!!}
+  langfuse:
+    enabled: ${CODELENS_LANGFUSE_ENABLED:false}
+    host: ${CODELENS_LANGFUSE_HOST:http://localhost:3000}
+    public-key: ${CODELENS_LANGFUSE_PUBLIC_KEY:}
+    secret-key: ${CODELENS_LANGFUSE_SECRET_KEY:}
 
 github:
   webhook-secret: ${GITHUB_WEBHOOK_SECRET:dev-webhook-secret}

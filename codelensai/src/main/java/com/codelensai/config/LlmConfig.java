@@ -20,7 +20,7 @@ import org.springframework.web.reactive.function.client.WebClient;
  * {@code gpt5} uses the real OpenAI provider; {@code claude} remains a stub.
  */
 @Configuration
-@EnableConfigurationProperties(LlmProperties.class)
+@EnableConfigurationProperties({LlmProperties.class, LangfuseProperties.class})
 public class LlmConfig {
 
     private static final Logger log = LoggerFactory.getLogger(LlmConfig.class);

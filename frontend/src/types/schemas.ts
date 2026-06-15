@@ -80,6 +80,13 @@ export const ReviewSummarySchema = z.object({
   completedAt: z.string().nullable(),
 });
 
+// PrDiffResponse (GET /api/prs/{id}/diff) — `diff` is "" when unavailable.
+export const PrDiffResponseSchema = z.object({
+  prId: z.number(),
+  headSha: z.string().nullable(),
+  diff: z.string(),
+});
+
 // ReviewStreamToken (WebSocket /topic/pr/{id}/review)
 export const ReviewStreamTokenSchema = z.object({
   seq: z.number(),

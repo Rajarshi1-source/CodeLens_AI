@@ -1,0 +1,9 @@
+# Root-level secrets and local overrides (never commit real env files).
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

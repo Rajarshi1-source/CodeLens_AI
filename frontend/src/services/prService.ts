@@ -1,6 +1,11 @@
 import { z } from 'zod';
 import { getJson, postVoid } from './api';
-import { PullRequestSchema, ReviewCommentDtoSchema, ReviewSummarySchema } from '@/types/schemas';
+import {
+  PrDiffResponseSchema,
+  PullRequestSchema,
+  ReviewCommentDtoSchema,
+  ReviewSummarySchema,
+} from '@/types/schemas';
 import { PrId, type PullRequest, type ReviewComment, type ReviewSummary } from '@/types/domain';
 
 function toPullRequest(p: z.infer<typeof PullRequestSchema>): PullRequest {
@@ -33,6 +38,10 @@ export const prService = {
 
   summary: (reviewId: number): Promise<ReviewSummary> =>
     getJson(`/api/reviews/${reviewId}/summary`, ReviewSummarySchema),
+
+  /** Raw unified diff for the PR; `diff` is "" when GitHub has no token / the fetch degraded. */
+  diff: (prId: PrId): Promise<string> =>
+    getJson(`/api/prs/${prId}/diff`, PrDiffResponseSchema).then((r) => r.diff),
 
   reReview: (prId: PrId): Promise<void> => postVoid(`/api/prs/${prId}/re-review`),
 };

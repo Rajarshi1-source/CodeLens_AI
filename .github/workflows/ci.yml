@@ -44,6 +44,8 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: maven
+      # `verify`, not `package`: maven-failsafe-plugin binds to integration-test/verify,
+      # both of which run AFTER package, so `package` would skip every *IT test.
       - name: Build and test
         env:
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/codelensai
@@ -53,7 +55,7 @@ jobs:
           SPRING_REDIS_PORT: "6379"
         run: |
           chmod +x mvnw
-          ./mvnw clean package -B
+          ./mvnw clean verify -B
 
   test-frontend:
     name: Frontend tests

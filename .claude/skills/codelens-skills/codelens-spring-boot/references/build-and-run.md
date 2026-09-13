@@ -197,6 +197,16 @@ This is the project's actual `pom.xml` — Initializr selections plus the three 
 
     <build>
         <plugins>
+            <!--
+              Runs the *IT integration tests. Surefire only matches *Test/Test*/*Tests, so
+              ReviewSessionIdempotencyIT was silently never executed. Version, the
+              integration-test+verify goal bindings, and classesDirectory all come from the
+              Spring Boot parent's pluginManagement. Bound to `verify`, NOT `package`.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -261,10 +271,13 @@ From the project root (use the generated wrapper; on Windows it's `mvnw.cmd`):
 
 ```
 cd C:\dev\codelensai
-mvnw.cmd clean package          REM compile, run tests, build the jar
+mvnw.cmd clean verify           REM unit tests (Surefire) + *IT integration tests (Failsafe) + jar
+mvnw.cmd clean package          REM unit tests ONLY -- stops before integration-test
 mvnw.cmd spring-boot:run        REM run locally
 mvnw.cmd clean package -DskipTests   REM skip tests for a fast packaging run
 ```
+
+**Use `verify`, not `package`, as the full test command** -- including in CI. Surefire only matches `*Test` / `Test*` / `*Tests`, so integration tests are named `*IT` and run under `maven-failsafe-plugin`, which binds to the `integration-test` and `verify` phases. Both of those run *after* `package`, so `mvnw package` builds the jar while silently skipping every `*IT` class. This project learned that the hard way: `ReviewSessionIdempotencyIT` existed for the entire MVP and never once executed, because there was no failsafe plugin declared and CI ran `package`.
 
 The wrapper downloads and uses its own pinned Maven, so the locally installed Maven version is irrelevant to the build. Boot 4 needs Maven 3.9+, which the wrapper satisfies. (On macOS/Linux the same commands are `./mvnw ...`.)
 

@@ -139,6 +139,16 @@
 
 	<build>
 		<plugins>
+			<!--
+			  Runs the *IT integration tests. Surefire only matches *Test/Test*/*Tests, so
+			  ReviewSessionIdempotencyIT was silently never executed. Version, the
+			  integration-test+verify goal bindings, and classesDirectory all come from the
+			  Spring Boot parent's pluginManagement. Bound to `verify`, NOT `package`.
+			-->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

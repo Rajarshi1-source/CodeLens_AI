@@ -134,7 +134,8 @@ int priorityScore(Object event) {
 ## Testing (JUnit 6 + Mockito + Testcontainers 2)
 
 - Unit tests: `@ExtendWith(MockitoExtension.class)`, mock repositories and the `LlmReviewProvider`.
-- Integration tests that touch Postgres/Redis: **TestContainers**, never an embedded fake — CodeLens relies on Postgres-specific features (JSONB, tsvector, `UNIQUE(pr_id, head_sha)`). Spin up `postgres:16-alpine` and wire it via `@DynamicPropertySource`; a worthwhile test asserts the unique constraint rejects a duplicate `(pr_id, head_sha)` with `DataIntegrityViolationException` (the idempotency backstop).
+- **Naming decides whether your test ever runs.** Surefire matches `*Test` / `Test*` / `*Tests` only. A class named `*IT` runs under `maven-failsafe-plugin` in the `integration-test`/`verify` phases, so it executes on `./mvnw verify` but is **silently skipped by `./mvnw package`**. Either name it `*Test`, or name it `*IT` and make sure the build command is `verify`.
+- Integration tests that touch Postgres/Redis: **Testcontainers**, never an embedded fake — CodeLens relies on Postgres-specific features (JSONB, tsvector, `UNIQUE(pr_id, head_sha)`). Spin up `postgres:16-alpine` and wire it via `@DynamicPropertySource`; a worthwhile test asserts the unique constraint rejects a duplicate `(pr_id, head_sha)` with `DataIntegrityViolationException` (the idempotency backstop).
 
 ## MUST DO
 - Use virtual threads for concurrent LLM/diff-chunk calls; size nothing manually.

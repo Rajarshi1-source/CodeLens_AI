@@ -6,8 +6,8 @@ import com.codelensai.model.dto.ReviewPromptContext;
 import com.codelensai.model.dto.ReviewToken;
 import com.codelensai.model.enums.Severity;
 import com.codelensai.util.PromptBuilder;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -94,7 +94,7 @@ public final class OpenAiGpt5Provider implements LlmReviewProvider {
         try {
             JsonNode root = objectMapper.readTree(data);
             JsonNode content = root.path("choices").path(0).path("delta").path("content");
-            return content.isTextual() ? content.asText() : "";
+            return content.isString() ? content.asString() : "";
         } catch (Exception e) {
             return "";
         }
@@ -108,10 +108,10 @@ public final class OpenAiGpt5Provider implements LlmReviewProvider {
         try {
             JsonNode comments = objectMapper.readTree(json).path("comments");
             for (JsonNode c : comments) {
-                String file = c.path("file").asText(chunk.fileName());
+                String file = c.path("file").asString(chunk.fileName());
                 int line = c.path("line").asInt(chunk.startLine());
-                Severity severity = parseSeverity(c.path("severity").asText("SUGGESTION"));
-                String text = c.path("comment").asText("");
+                Severity severity = parseSeverity(c.path("severity").asString("SUGGESTION"));
+                String text = c.path("comment").asString("");
                 if (text.isBlank()) {
                     continue;
                 }

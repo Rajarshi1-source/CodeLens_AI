@@ -3,7 +3,7 @@ package com.codelensai.websocket;
 import com.codelensai.model.dto.ReviewStreamToken;
 import com.codelensai.model.enums.ReviewStatus;
 import com.codelensai.util.StreamKeys;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;

@@ -4,7 +4,7 @@ import com.codelensai.service.llm.AnthropicClaudeProvider;
 import com.codelensai.service.llm.LlmReviewProvider;
 import com.codelensai.service.llm.LocalModelProvider;
 import com.codelensai.service.llm.OpenAiGpt5Provider;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;

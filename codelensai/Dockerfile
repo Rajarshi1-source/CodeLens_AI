@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build for the CodeLens AI backend (Spring Boot 3.5.x / Java 21).
+# Multi-stage build for the CodeLens AI backend (Spring Boot 4.1.x / Java 21).
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 COPY .mvn/ .mvn/

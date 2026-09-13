@@ -111,7 +111,7 @@ codelens:
 | **Frontend** | React 18 + TypeScript | Industry standard for SPAs. TS catches bugs at compile time. React's component model fits diff views and streaming comments. |
 | **UI Library** | Tailwind CSS + shadcn/ui | Rapid prototyping; accessible, production-grade components without heavy bundle. |
 | **Diff Rendering** | react-diff-viewer-continued | Purpose-built for unified/split diffs with syntax highlighting. Saves 2+ weeks. |
-| **Backend** | Spring Boot 3.x (Java 21) | Enterprise-grade, dominant in Bangalore product companies. Built-in WebSocket, virtual threads for concurrent LLM calls. |
+| **Backend** | Spring Boot 4.1.x (Java 21) | Enterprise-grade, dominant in Bangalore product companies. Built-in WebSocket, virtual threads for concurrent LLM calls. |
 | **Real-time** | WebSocket (STOMP over SockJS) | Bidirectional, low-latency. STOMP gives topic routing (per PR). SockJS falls back behind corporate proxies. |
 | **AI Integration** | Current frontier LLM behind an adapter (streaming) — see §2 | Streaming sends tokens as SSE to the backend, relayed over WebSocket to all clients. |
 | **Database** | PostgreSQL 16 | See §8. Relational integrity for PRs/comments/users, JSONB for AI metadata, full-text search. |
@@ -1195,7 +1195,7 @@ Consistently-dismissed comment types are auto-suppressed and fed to the eval set
 - Dashboard + review-quality eval (bug-catch rate)
 
 ## Tech Stack
-Spring Boot 3 (Java 21) · React 18 · TS · PostgreSQL 16 (+pgvector) · Redis 7 ·
+Spring Boot 4.1.x (Java 21) · React 18 · TS · PostgreSQL 16 (+pgvector) · Redis 7 ·
 WebSocket (STOMP/SockJS) · LLM adapter (GPT-5-class) · Langfuse · Docker · GitHub Actions
 
 ## Key Architecture Decisions

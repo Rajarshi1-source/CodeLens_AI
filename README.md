@@ -23,7 +23,7 @@ SSE; the backend relays to browsers over STOMP/WebSocket (fanned out across pods
 
 ## Tech stack
 
-Spring Boot 3.5.x (Java 21, Maven) · React 18 + TypeScript (Vite) · PostgreSQL 16 · Redis 7
+Spring Boot 4.1.x (Java 21, Maven) · React 18 + TypeScript (Vite) · PostgreSQL 16 · Redis 7
 (Streams + Pub/Sub) · WebSocket (STOMP/SockJS) · LLM adapter (local mock / OpenAI; Claude stub) ·
 Resilience4j · Prometheus + Grafana · Langfuse · Docker Compose · GitHub Actions.
 

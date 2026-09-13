@@ -5,7 +5,7 @@ description: Java 21 LTS specialist for the CodeLens AI backend. Use this skill 
 
 # CodeLens AI — Java 21 LTS
 
-You are a senior Java architect working on **CodeLens AI**, a real-time collaborative code-review platform. The backend is **Spring Boot 3.5.x (Java 21)**, built with Maven. This skill governs how Java is written here: idioms, concurrency, and type design. Spring-specific wiring (controllers, security, WebSocket, Redis) lives in the `codelens-spring-boot` skill — use both together for backend work.
+You are a senior Java architect working on **CodeLens AI**, a real-time collaborative code-review platform. The backend is **Spring Boot 4.1.x (Java 21)**, built with Maven. This skill governs how Java is written here: idioms, concurrency, and type design. Spring-specific wiring (controllers, security, WebSocket, Redis) lives in the `codelens-spring-boot` skill — use both together for backend work.
 
 ## Reference files (load on demand)
 
@@ -131,7 +131,7 @@ int priorityScore(Object event) {
 }
 ```
 
-## Testing (JUnit 5 + Mockito + TestContainers)
+## Testing (JUnit 6 + Mockito + Testcontainers 2)
 
 - Unit tests: `@ExtendWith(MockitoExtension.class)`, mock repositories and the `LlmReviewProvider`.
 - Integration tests that touch Postgres/Redis: **TestContainers**, never an embedded fake — CodeLens relies on Postgres-specific features (JSONB, tsvector, `UNIQUE(pr_id, head_sha)`). Spin up `postgres:16-alpine` and wire it via `@DynamicPropertySource`; a worthwhile test asserts the unique constraint rejects a duplicate `(pr_id, head_sha)` with `DataIntegrityViolationException` (the idempotency backstop).
@@ -151,14 +151,14 @@ int priorityScore(Object event) {
 
 ## Build configuration
 
-Maven (Spring Boot parent) targeting Java 21. Use the latest **Spring Boot 3.5.x** patch — it's the newest supported 3.x line, still Spring Framework 6.2 / Spring Security 6, so every pattern in these skills applies unchanged:
+Maven (Spring Boot parent) targeting Java 21. Use the latest **Spring Boot 4.1.x** patch — Spring Framework 7.0 / Spring Security 7.1, Jackson 3, JUnit 6, Testcontainers 2. Java 21 stays the target (4.1.x is tested on 17–26); the 3.5 line went open-source EOL at 3.5.16 on 2026-06-30:
 
 ```xml
 <!-- pom.xml -->
 <parent>
     <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-parent</artifactId>
-    <version>3.5.11</version>   <!-- use the latest 3.5.x patch available -->
+    <version>4.1.1</version>   <!-- use the latest 4.1.x patch available -->
     <relativePath/>
 </parent>
 
@@ -169,11 +169,11 @@ Maven (Spring Boot parent) targeting Java 21. Use the latest **Spring Boot 3.5.x
 <dependencies>
     <dependency>
         <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-web</artifactId>
+        <artifactId>spring-boot-starter-webmvc</artifactId>   <!-- Boot 4 name for starter-web -->
     </dependency>
     <dependency>
         <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-webflux</artifactId>   <!-- WebClient + Flux streaming -->
+        <artifactId>spring-boot-starter-webclient</artifactId>   <!-- WebClient + Flux, without the reactive server stack -->
     </dependency>
     <dependency>
         <groupId>org.springframework.boot</groupId>
@@ -185,8 +185,15 @@ Maven (Spring Boot parent) targeting Java 21. Use the latest **Spring Boot 3.5.x
     </dependency>
     <dependency>
         <groupId>io.github.resilience4j</groupId>
-        <artifactId>resilience4j-spring-boot3</artifactId>
-        <version>2.2.0</version>   <!-- not managed by the Boot BOM; pin explicitly -->
+        <artifactId>resilience4j-spring-boot4</artifactId>
+        <version>2.4.0</version>   <!-- not managed by the Boot BOM; pin explicitly -->
+    </dependency>
+    <dependency>
+        <!-- REQUIRED for the resilience4j annotations on Boot 4: starter-aop was removed
+             and resilience4j-spring-boot4 does not pull AOP in transitively. Without this
+             @CircuitBreaker/@Retry/@Bulkhead are silently never woven. -->
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-aspectj</artifactId>
     </dependency>
 
     <dependency>
@@ -196,8 +203,9 @@ Maven (Spring Boot parent) targeting Java 21. Use the latest **Spring Boot 3.5.x
     </dependency>
     <dependency>
         <groupId>org.testcontainers</groupId>
-        <artifactId>postgresql</artifactId>
-        <scope>test</scope>   <!-- version managed by the Spring Boot parent BOM -->
+        <artifactId>testcontainers-postgresql</artifactId>
+        <scope>test</scope>   <!-- Testcontainers 2 renamed every artifactId to testcontainers-*;
+                                   version managed by the Spring Boot parent BOM -->
     </dependency>
 </dependencies>
 ```

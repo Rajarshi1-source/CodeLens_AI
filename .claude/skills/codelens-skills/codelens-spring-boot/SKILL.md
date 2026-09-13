@@ -1,11 +1,11 @@
 ---
 name: codelens-spring-boot
-description: Spring Boot 3.5.x specialist for the CodeLens AI backend. Use this skill whenever building or editing any backend component of the CodeLens AI code-review platform — REST controllers, services, repositories, the idempotent GitHub webhook receiver, the Redis Streams review-job consumer, the LLM provider adapter, STOMP/WebSocket streaming, Spring Security 6 GitHub OAuth2, JPA entities, or Resilience4j wiring. Trigger this even when the user only says "the webhook," "the review consumer," "the WebSocket handler," "OAuth," "the queue," or names a Spring bean/class — all server-side wiring in CodeLens AI follows these conventions and should use this skill. Pair it with codelens-java21 for language-level concerns.
+description: Spring Boot 4.1.x specialist for the CodeLens AI backend. Use this skill whenever building or editing any backend component of the CodeLens AI code-review platform — REST controllers, services, repositories, the idempotent GitHub webhook receiver, the Redis Streams review-job consumer, the LLM provider adapter, STOMP/WebSocket streaming, Spring Security 7 GitHub OAuth2, JPA entities, or Resilience4j wiring. Trigger this even when the user only says "the webhook," "the review consumer," "the WebSocket handler," "OAuth," "the queue," or names a Spring bean/class — all server-side wiring in CodeLens AI follows these conventions and should use this skill. Pair it with codelens-java21 for language-level concerns.
 ---
 
-# CodeLens AI — Spring Boot 3.5.x (Java 21)
+# CodeLens AI — Spring Boot 4.1.x (Java 21)
 
-You are building the **CodeLens AI** backend: a Spring Boot 3.5.x service on Java 21 (built with Maven) that ingests GitHub PR webhooks idempotently, queues review jobs in Redis Streams, runs an LLM behind a config-driven adapter, and streams structured review comments to browsers over STOMP/WebSocket (fanned out across pods via Redis Pub/Sub). Spring Boot 3.5.x is the latest supported 3.x line — still Spring Framework 6.2 / Spring Security 6, so the patterns here are unchanged from earlier 3.x. Language idioms (records, virtual threads, sealed adapter) live in `codelens-java21` — use both.
+You are building the **CodeLens AI** backend: a Spring Boot 4.1.x service on Java 21 (built with Maven) that ingests GitHub PR webhooks idempotently, queues review jobs in Redis Streams, runs an LLM behind a config-driven adapter, and streams structured review comments to browsers over STOMP/WebSocket (fanned out across pods via Redis Pub/Sub). Spring Boot 4.1.x runs on Spring Framework 7.0 / Spring Security 7.1. Java 21 remains the target (4.1.x is tested on 17–26). The 3.5 line reached open-source EOL at 3.5.16 on 2026-06-30, which is why this project moved off it. Language idioms (records, virtual threads, sealed adapter) live in `codelens-java21` — use both.
 
 ## Reference files (load on demand)
 
@@ -17,7 +17,7 @@ This body is the working summary. Read the matching reference when you need full
 | `references/idempotency-and-queue.md` | Touching the webhook receiver, the Redis Streams consumer, DLQ, or the create-or-replace upsert (full code) |
 | `references/diff-chunking.md` | Implementing/tuning `DiffChunkerService`, AST-aware chunking, file-skipping, line-number fidelity |
 | `references/prompt-versioning-and-resilience.md` | Changing prompts, wiring Resilience4j, or the Redis Pub/Sub WebSocket fan-out |
-| `references/build-and-run.md` | Generating the project, editing `pom.xml`, or setting up the local/Docker build (Maven, Spring Boot 3.5.x, Java 21) |
+| `references/build-and-run.md` | Generating the project, editing `pom.xml`, or setting up the local/Docker build (Maven, Spring Boot 4.1.x, Java 21) |
 
 ## Pipeline this backend implements
 
@@ -137,7 +137,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
 A token produced on pod #1 must reach a client on pod #2 → publish to a Redis channel `review:{prId}`; each pod subscribes and pushes to its local STOMP sessions. Per review session, attach a **sequence number** so a reconnecting client can replay missed comments (resumable stream).
 
-## 5. Spring Security 6 — GitHub OAuth2 + stateless API
+## 5. Spring Security 7 — GitHub OAuth2 + stateless API
 
 ```java
 @Configuration
@@ -186,7 +186,9 @@ Wrap LLM/GitHub calls with circuit breaker + retry (backoff + jitter, respect `R
 public Flux<ReviewToken> review(DiffChunk chunk) { ... }
 ```
 
-The `resilience4j-spring-boot3` dependency is not managed by the Spring Boot BOM — pin its version explicitly in `pom.xml` (see the build config in `codelens-java21`).
+Use `resilience4j-spring-boot4` (the `-spring-boot3` artifact targets Spring Framework 6). It is still not managed by the Spring Boot BOM — pin its version explicitly in `pom.xml` (see the build config in `codelens-java21`).
+
+**Boot 4 requires `spring-boot-starter-aspectj` for these annotations to do anything.** Boot 4 removed `spring-boot-starter-aop`, and `resilience4j-spring-boot4` does not pull an AOP starter transitively the way `resilience4j-spring-boot3` did. Omit it and `@CircuitBreaker` / `@Retry` / `@Bulkhead` become silent no-ops: the app starts, tests pass, and the resilience layer simply is not there.
 
 ## API surface (keep stable)
 

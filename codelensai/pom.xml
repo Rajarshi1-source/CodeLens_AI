@@ -16,6 +16,8 @@
 	<properties>
 		<java.version>21</java.version>
 		<resilience4j.version>2.4.0</resilience4j.version>
+		<anthropic-java.version>2.34.0</anthropic-java.version>
+		<javaparser.version>3.26.4</javaparser.version>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -78,6 +80,19 @@
 			<version>${resilience4j.version}</version>
 		</dependency>
 
+		<!-- Official Anthropic SDK for the Claude provider. It brings Jackson 2 (com.fasterxml) and OkHttp;
+		     these coexist with Boot 4's Jackson 3 (tools.jackson) because the packages differ. -->
+		<dependency>
+			<groupId>com.anthropic</groupId>
+			<artifactId>anthropic-java</artifactId>
+			<version>${anthropic-java.version}</version>
+		</dependency>
+		<!-- G4 structure-aware chunking: exact Java method/class ranges (pure Java, no native libs). -->
+		<dependency>
+			<groupId>com.github.javaparser</groupId>
+			<artifactId>javaparser-core</artifactId>
+			<version>${javaparser.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-devtools</artifactId>
@@ -148,11 +163,24 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-failsafe-plugin</artifactId>
+				<configuration>
+					<argLine>-Duser.timezone=UTC</argLine>
+				</configuration>
+			</plugin>
+			<!-- UTC JVM for tests: PostgreSQL 18 rejects legacy tz aliases (e.g. Asia/Calcutta) that some
+			     OS defaults still report, and all persisted timestamps are Instants anyway. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<argLine>-Duser.timezone=UTC</argLine>
+				</configuration>
 			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
+					<jvmArguments>-Duser.timezone=UTC</jvmArguments>
 					<excludes>
 						<exclude>
 							<groupId>org.projectlombok</groupId>

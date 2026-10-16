@@ -1,5 +1,6 @@
 package com.codelensai.controller;
 
+import com.codelensai.repository.RepositoryRepository;
 import com.codelensai.service.IdempotencyService;
 import com.codelensai.service.WebhookService;
 import com.codelensai.util.WebhookSignatureValidator;
@@ -13,8 +14,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Idempotent GitHub webhook receiver. Verify authenticity FIRST, then dedup, then enqueue and ACK
- * fast (202). The review is NEVER run inline — it is processed asynchronously off the Redis Stream.
+ * Idempotent GitHub webhook receiver. Verify authenticity FIRST, then dedup, then enqueue and ACK fast
+ * (202). The review is NEVER run inline — it is processed asynchronously off the Redis Stream.
+ *
+ * <p>Hooks created by "connect repository" are signed with that repository's own secret, so the payload's
+ * {@code repository.full_name} picks the per-repo secret to verify against; the global
+ * {@code github.webhook-secret} covers manually configured hooks. Nothing from the body is trusted until
+ * one of them verifies.
  */
 @RestController
 @RequestMapping("/api/webhooks")
@@ -25,13 +31,16 @@ public class WebhookController {
     private final WebhookSignatureValidator signatureValidator;
     private final IdempotencyService idempotency;
     private final WebhookService webhookService;
+    private final RepositoryRepository repositories;
 
     public WebhookController(WebhookSignatureValidator signatureValidator,
                              IdempotencyService idempotency,
-                             WebhookService webhookService) {
+                             WebhookService webhookService,
+                             RepositoryRepository repositories) {
         this.signatureValidator = signatureValidator;
         this.idempotency = idempotency;
         this.webhookService = webhookService;
+        this.repositories = repositories;
     }
 
     @PostMapping("/github")
@@ -41,7 +50,7 @@ public class WebhookController {
             @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature,
             @RequestBody String rawBody) {
 
-        if (!signatureValidator.isValid(rawBody, signature)) {
+        if (!verified(rawBody, signature)) {
             log.warn("Rejected webhook: invalid signature (delivery={})", deliveryId);
             return ResponseEntity.status(401).body("invalid signature");
         }
@@ -58,5 +67,15 @@ public class WebhookController {
 
         webhookService.parseAndEnqueue(rawBody);
         return ResponseEntity.accepted().body("queued");
+    }
+
+    private boolean verified(String rawBody, String signature) {
+        boolean perRepo = webhookService.repositoryOf(rawBody)
+                .flatMap(repositories::findByFullName)
+                .map(r -> r.getWebhookSecret())
+                .filter(secret -> secret != null && !secret.isBlank())
+                .map(secret -> signatureValidator.isValid(rawBody, signature, secret))
+                .orElse(false);
+        return perRepo || signatureValidator.isValid(rawBody, signature);
     }
 }

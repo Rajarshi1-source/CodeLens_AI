@@ -1,14 +1,15 @@
 package com.codelensai.service.llm;
 
 import com.codelensai.model.dto.DiffChunk;
+import com.codelensai.model.dto.ReviewEvent;
 import com.codelensai.model.dto.ReviewPromptContext;
-import com.codelensai.model.dto.ReviewToken;
 import com.codelensai.model.enums.Severity;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -17,7 +18,7 @@ class LocalModelProviderTest {
     private final LocalModelProvider provider = new LocalModelProvider();
 
     @Test
-    void flagsHardcodedSecretAsCriticalOnTheCorrectLine() {
+    void flagsHardcodedSecretAsCriticalOnTheCorrectLineWithASuggestion() {
         String content = """
                 @@ -1,2 +1,4 @@
                  import os
@@ -25,18 +26,31 @@ class LocalModelProviderTest {
                 +DB_URL = os.environ["DB_URL"]
                 """;
         DiffChunk chunk = new DiffChunk("config.py", 1, content, "python");
-
-        List<ReviewToken> tokens = provider.buildTokens(chunk);
-
-        assertFalseEmpty(tokens);
-        ReviewToken first = tokens.get(0);
+        List<ReviewEvent.Finding> findings = provider.buildFindings(chunk);
+        assertTrue(!findings.isEmpty(), "expected a finding");
+        ReviewEvent.Finding first = findings.get(0);
         assertEquals("config.py", first.file());
         assertEquals(2, first.line()); // line 1 = "import os" (context), line 2 = API_KEY (added)
         assertEquals(Severity.CRITICAL, first.severity());
+        assertEquals("local.hardcoded-secret", first.ruleKey());
+        assertEquals("API_KEY = os.environ[\"API_KEY\"]", first.codeSuggestion());
     }
 
     @Test
-    void cleanDiffProducesNoComments() {
+    void javaSecretSuggestionReadsTheEnvironment() {
+        String suggestion = LocalModelProvider.envSuggestion("    private static final String apiKey = \"sk-live-abcdef123\";");
+        assertEquals("    private static final String apiKey = System.getenv(\"API_KEY\");", suggestion);
+    }
+
+    @Test
+    void sqlConcatenationGetsAPlaceholderSuggestion() {
+        String suggestion = LocalModelProvider.sqlSuggestion("        String sql = \"SELECT * FROM users WHERE email = '\" + email + \"'\";");
+        assertNotNull(suggestion);
+        assertTrue(suggestion.contains("\"SELECT * FROM users WHERE email = ?\""), suggestion);
+    }
+
+    @Test
+    void cleanDiffProducesNoFindings() {
         String content = """
                 @@ -1,2 +1,4 @@
                  public class Greeting {
@@ -44,27 +58,22 @@ class LocalModelProviderTest {
                 +        return name == null ? "Hi" : "Hi " + name;
                  }
                 """;
-        DiffChunk chunk = new DiffChunk("Greeting.java", 1, content, "java");
-
-        assertTrue(provider.buildTokens(chunk).isEmpty());
+        assertTrue(provider.buildFindings(new DiffChunk("Greeting.java", 1, content, "java")).isEmpty());
     }
 
     @Test
-    void streamReviewFluxCompletes() {
+    void streamEmitsFindingsThenAnEstimatedUsage() {
         String content = """
                 @@ -1,1 +1,2 @@
                 +String sql = "SELECT * FROM t WHERE x = '" + q + "'";
                 """;
         DiffChunk chunk = new DiffChunk("Dao.java", 1, content, "java");
-
-        List<ReviewToken> collected = provider.streamReview(ReviewPromptContext.of(chunk, "system"))
-                .collectList().block();
-
-        assertNotNull(collected);
-        assertTrue(collected.stream().anyMatch(t -> t.severity() == Severity.CRITICAL));
-    }
-
-    private static void assertFalseEmpty(List<?> list) {
-        assertTrue(list != null && !list.isEmpty(), "expected non-empty token list");
+        List<ReviewEvent> events = provider.streamReview(ReviewPromptContext.of(chunk, "system")).collectList().block();
+        assertNotNull(events);
+        assertTrue(events.stream().anyMatch(e -> e instanceof ReviewEvent.Finding f && f.severity() == Severity.CRITICAL));
+        ReviewEvent.Usage usage = assertInstanceOf(ReviewEvent.Usage.class, events.get(events.size() - 1));
+        assertTrue(usage.estimated());
+        assertTrue(usage.inputTokens() > 0);
+        assertEquals("local-mock", usage.model());
     }
 }

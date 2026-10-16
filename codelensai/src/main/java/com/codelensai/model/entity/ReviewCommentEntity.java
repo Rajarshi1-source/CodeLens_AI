@@ -62,6 +62,12 @@ public class ReviewCommentEntity {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    @Column(name = "rule_key", length = 100)
+    private String ruleKey;
+
+    @Column(length = 64)
+    private String fingerprint;
+
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
@@ -149,5 +155,20 @@ public class ReviewCommentEntity {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+    public String getRuleKey() {
+        return ruleKey;
+    }
+
+    public void setRuleKey(String ruleKey) {
+        this.ruleKey = ruleKey;
+    }
+
+    public String getFingerprint() {
+        return fingerprint;
+    }
+
+    public void setFingerprint(String fingerprint) {
+        this.fingerprint = fingerprint;
     }
 }

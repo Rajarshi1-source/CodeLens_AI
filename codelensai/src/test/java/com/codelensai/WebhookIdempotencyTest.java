@@ -1,11 +1,9 @@
 package com.codelensai;
 
 import com.codelensai.service.IdempotencyService;
+import com.codelensai.support.CodelensIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 
@@ -16,9 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Proves delivery-level dedup: the first delivery for a UUID is processed, re-deliveries are ignored.
  * This is the "GitHub sends the same webhook twice — what happens?" guarantee.
  */
-@Testcontainers(disabledWithoutDocker = true)
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@CodelensIntegrationTest
 class WebhookIdempotencyTest {
 
     @Autowired

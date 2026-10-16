@@ -7,12 +7,10 @@ import com.codelensai.model.enums.ReviewStatus;
 import com.codelensai.repository.PullRequestRepository;
 import com.codelensai.repository.RepositoryRepository;
 import com.codelensai.repository.ReviewSessionRepository;
+import com.codelensai.support.CodelensIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -20,9 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * The effectively-once backstop: {@code UNIQUE(pr_id, head_sha)} on {@code review_sessions} rejects a
  * duplicate review for the same commit even if two workers race. The second insert must throw.
  */
-@Testcontainers(disabledWithoutDocker = true)
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@CodelensIntegrationTest
 class ReviewSessionIdempotencyIT {
 
     @Autowired

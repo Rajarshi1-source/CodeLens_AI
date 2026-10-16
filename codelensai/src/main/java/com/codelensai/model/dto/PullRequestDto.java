@@ -12,7 +12,11 @@ public record PullRequestDto(
         int filesChanged,
         int additions,
         int deletions,
-        String htmlUrl
+        String htmlUrl,
+        String headSha,
+        String riskLevel,
+        Integer riskScore,
+        Long latestSessionId
 ) {
     public static PullRequestDto from(PullRequest pr) {
         return new PullRequestDto(
@@ -24,6 +28,10 @@ public record PullRequestDto(
                 pr.getFilesChanged() == null ? 0 : pr.getFilesChanged(),
                 pr.getAdditions() == null ? 0 : pr.getAdditions(),
                 pr.getDeletions() == null ? 0 : pr.getDeletions(),
-                pr.getHtmlUrl());
+                pr.getHtmlUrl(),
+                pr.getHeadSha(),
+                pr.getRiskLevel(),
+                pr.getRiskScore(),
+                pr.getLatestSessionId());
     }
 }

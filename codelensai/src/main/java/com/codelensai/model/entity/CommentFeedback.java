@@ -31,9 +31,22 @@ public class CommentFeedback {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    @Column(name = "repo_id")
+    private Long repoId;
+
+    @Column(name = "rule_key", length = 100)
+    private String ruleKey;
+
+    @Column(length = 64)
+    private String fingerprint;
+
+    @Column(name = "updated_at")
+    private Instant updatedAt;
+
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
+        this.updatedAt = this.createdAt;
     }
 
     public Long getId() {
@@ -70,5 +83,36 @@ public class CommentFeedback {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+    public Long getRepoId() {
+        return repoId;
+    }
+
+    public void setRepoId(Long repoId) {
+        this.repoId = repoId;
+    }
+
+    public String getRuleKey() {
+        return ruleKey;
+    }
+
+    public void setRuleKey(String ruleKey) {
+        this.ruleKey = ruleKey;
+    }
+
+    public String getFingerprint() {
+        return fingerprint;
+    }
+
+    public void setFingerprint(String fingerprint) {
+        this.fingerprint = fingerprint;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

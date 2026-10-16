@@ -1,5 +1,14 @@
--- CodeLens AI — PostgreSQL schema (idempotent: safe to re-run)
+-- CodeLens AI — PostgreSQL schema (idempotent: safe to re-run on every boot)
 -- UNIQUE(pr_id, head_sha) on review_sessions is the effectively-once backstop.
+--
+-- Rules for editing this file (it runs on EVERY startup via spring.sql.init.mode=always):
+--   * every statement must be idempotent: CREATE ... IF NOT EXISTS / ADD COLUMN IF NOT EXISTS;
+--   * no DO $$ ... $$ blocks — Spring's ScriptUtils splits on ';';
+--   * dedupe rows BEFORE adding a unique index, or startup fails on existing data.
+
+-- pgvector (G1 repo-aware retrieval). Needs the extension installed in the server image
+-- (pgvector/pgvector:pg16) and, on a self-managed server, created once by a superuser.
+CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE IF NOT EXISTS users (
     id BIGSERIAL PRIMARY KEY,
@@ -91,3 +100,100 @@ CREATE INDEX IF NOT EXISTS idx_comment_pr       ON review_comments(pr_id);
 CREATE INDEX IF NOT EXISTS idx_comment_severity ON review_comments(severity);
 CREATE INDEX IF NOT EXISTS idx_comment_search   ON review_comments
     USING GIN (to_tsvector('english', comment_text));
+
+-- ---------------------------------------------------------------------------------------------
+-- Differentiator features (expand-only changes; see docs/adr/0005-0009)
+-- ---------------------------------------------------------------------------------------------
+
+-- Repo index state (G1) + default branch.
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS default_branch VARCHAR(255);
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS index_status VARCHAR(20) DEFAULT 'NOT_INDEXED';
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS indexed_sha VARCHAR(40);
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS indexed_at TIMESTAMP;
+ALTER TABLE repositories ADD COLUMN IF NOT EXISTS indexed_chunks INT DEFAULT 0;
+
+-- Access is by membership, not just the connecting user. The owner is backfilled on every boot.
+CREATE TABLE IF NOT EXISTS repository_members (
+    repo_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(20) NOT NULL DEFAULT 'OWNER',
+    created_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (repo_id, user_id)
+);
+INSERT INTO repository_members(repo_id, user_id, role)
+    SELECT id, user_id, 'OWNER' FROM repositories WHERE user_id IS NOT NULL
+    ON CONFLICT DO NOTHING;
+
+-- Latest review denormalized onto the PR so lists/filters need no N+1 (G3).
+ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS latest_session_id BIGINT;
+ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS risk_level VARCHAR(10);
+ALTER TABLE pull_requests ADD COLUMN IF NOT EXISTS risk_score SMALLINT;
+CREATE INDEX IF NOT EXISTS idx_pr_risk ON pull_requests(risk_level);
+
+-- Risk (G3), real token accounting + cost, failure reason (budget).
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS risk_score SMALLINT;
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS risk_level VARCHAR(10);
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS risk_reasons JSONB DEFAULT '[]';
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS recommended_action TEXT;
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS input_tokens INT DEFAULT 0;
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS output_tokens INT DEFAULT 0;
+ALTER TABLE review_sessions ADD COLUMN IF NOT EXISTS failure_reason VARCHAR(40);
+ALTER TABLE review_sessions ALTER COLUMN model_used TYPE VARCHAR(100);
+
+-- Rule key (G7 suppression) + stable fingerprint (feedback re-link, stream key).
+ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS rule_key VARCHAR(100);
+ALTER TABLE review_comments ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(64);
+CREATE INDEX IF NOT EXISTS idx_comment_session ON review_comments(session_id);
+CREATE INDEX IF NOT EXISTS idx_comment_rule ON review_comments(rule_key);
+
+-- Feedback flywheel: denormalized so it survives a same-SHA re-review and powers suppression.
+ALTER TABLE comment_feedback ADD COLUMN IF NOT EXISTS repo_id BIGINT;
+ALTER TABLE comment_feedback ADD COLUMN IF NOT EXISTS rule_key VARCHAR(100);
+ALTER TABLE comment_feedback ADD COLUMN IF NOT EXISTS fingerprint VARCHAR(64);
+ALTER TABLE comment_feedback ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+DELETE FROM comment_feedback a USING comment_feedback b
+    WHERE a.comment_id = b.comment_id AND a.user_id = b.user_id AND a.id < b.id;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_feedback_comment_user ON comment_feedback(comment_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_feedback_repo_rule ON comment_feedback(repo_id, rule_key);
+CREATE INDEX IF NOT EXISTS idx_feedback_fingerprint ON comment_feedback(repo_id, fingerprint);
+
+-- Diff snapshots: the diff a review ran against survives cache expiry / a missing token / demo mode.
+CREATE TABLE IF NOT EXISTS pr_diffs (
+    pr_id BIGINT NOT NULL REFERENCES pull_requests(id) ON DELETE CASCADE,
+    head_sha VARCHAR(40) NOT NULL,
+    diff TEXT NOT NULL,
+    source VARCHAR(20) NOT NULL DEFAULT 'github',
+    byte_size INT NOT NULL DEFAULT 0,
+    fetched_at TIMESTAMP DEFAULT NOW(),
+    PRIMARY KEY (pr_id, head_sha)
+);
+
+-- G1 code index: structure-aware chunks of the default branch + their embeddings and symbols.
+CREATE TABLE IF NOT EXISTS code_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    repo_id BIGINT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    path VARCHAR(1000) NOT NULL,
+    language VARCHAR(20),
+    symbol VARCHAR(255),
+    kind VARCHAR(20) NOT NULL,
+    start_line INT NOT NULL,
+    end_line INT NOT NULL,
+    content TEXT NOT NULL,
+    content_hash CHAR(64) NOT NULL,
+    ref_sha VARCHAR(40),
+    embedding vector(512),
+    embedding_provider VARCHAR(40) NOT NULL,
+    indexed_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE (repo_id, path, content_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_code_chunks_repo_path ON code_chunks(repo_id, path);
+CREATE INDEX IF NOT EXISTS idx_code_chunks_embedding ON code_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS code_symbols (
+    chunk_id BIGINT NOT NULL REFERENCES code_chunks(id) ON DELETE CASCADE,
+    repo_id BIGINT NOT NULL,
+    symbol VARCHAR(255) NOT NULL,
+    role VARCHAR(3) NOT NULL,
+    PRIMARY KEY (chunk_id, symbol, role)
+);
+CREATE INDEX IF NOT EXISTS idx_code_symbols_lookup ON code_symbols(repo_id, symbol, role);

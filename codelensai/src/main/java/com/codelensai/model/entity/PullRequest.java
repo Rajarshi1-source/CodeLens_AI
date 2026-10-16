@@ -71,6 +71,15 @@ public class PullRequest {
     @Column(name = "updated_at")
     private Instant updatedAt;
 
+    @Column(name = "latest_session_id")
+    private Long latestSessionId;
+
+    @Column(name = "risk_level", length = 10)
+    private String riskLevel;
+
+    @Column(name = "risk_score")
+    private Integer riskScore;
+
     @PrePersist
     void onCreate() {
         Instant now = Instant.now();
@@ -209,5 +218,28 @@ public class PullRequest {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+    public Long getLatestSessionId() {
+        return latestSessionId;
+    }
+
+    public void setLatestSessionId(Long latestSessionId) {
+        this.latestSessionId = latestSessionId;
+    }
+
+    public String getRiskLevel() {
+        return riskLevel;
+    }
+
+    public void setRiskLevel(String riskLevel) {
+        this.riskLevel = riskLevel;
+    }
+
+    public Integer getRiskScore() {
+        return riskScore;
+    }
+
+    public void setRiskScore(Integer riskScore) {
+        this.riskScore = riskScore;
     }
 }

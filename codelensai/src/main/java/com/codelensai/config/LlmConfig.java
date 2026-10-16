@@ -1,26 +1,29 @@
 package com.codelensai.config;
 
 import com.codelensai.service.llm.AnthropicClaudeProvider;
+import com.codelensai.service.llm.LlmProviderRegistry;
 import com.codelensai.service.llm.LlmReviewProvider;
 import com.codelensai.service.llm.LocalModelProvider;
 import com.codelensai.service.llm.OpenAiGpt5Provider;
-import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * Selects the active {@link LlmReviewProvider} from {@code codelens.llm.provider}. The concrete
- * providers are Spring beans (so the OpenAI one gets its {@link WebClient}); the {@code @Primary}
- * selector bean is what services inject. The MVP default is {@code local} (offline, no API key);
- * {@code gpt5} uses the real OpenAI provider; {@code claude} remains a stub.
+ * Wires the LLM providers. The concrete providers are beans (so the OpenAI one gets its {@link WebClient}
+ * and Claude its SDK settings); {@link LlmProviderRegistry} picks the primary from
+ * {@code codelens.llm.provider} and the failover target from {@code codelens.llm.fallback-provider}.
+ * The default is {@code local} (offline, no API key); {@code gpt5} and {@code claude} are real providers.
  */
 @Configuration
-@EnableConfigurationProperties({LlmProperties.class, LangfuseProperties.class})
 public class LlmConfig {
 
     private static final Logger log = LoggerFactory.getLogger(LlmConfig.class);
@@ -47,23 +50,27 @@ public class LlmConfig {
     }
 
     @Bean
-    public AnthropicClaudeProvider anthropicClaudeProvider() {
-        return new AnthropicClaudeProvider();
+    public AnthropicClaudeProvider anthropicClaudeProvider(ClaudeProperties claudeProperties, ObjectMapper objectMapper) {
+        return new AnthropicClaudeProvider(claudeProperties, objectMapper);
+    }
+
+    @Bean
+    public LlmProviderRegistry llmProviderRegistry(LlmProperties props,
+                                                   LocalModelProvider local,
+                                                   OpenAiGpt5Provider gpt5,
+                                                   AnthropicClaudeProvider claude) {
+        Map<String, LlmReviewProvider> byId = List.<LlmReviewProvider>of(local, gpt5, claude).stream()
+                .collect(Collectors.toMap(LlmProviderRegistry::idOf, p -> p));
+        LlmProviderRegistry registry = new LlmProviderRegistry(byId, props.provider(), props.fallbackProvider());
+        log.info("Active LLM provider: {} (review-model={}), fallback: {}",
+                registry.primary().providerId(), registry.primary().reviewModel(),
+                registry.fallbackFor(registry.primary()).map(LlmReviewProvider::providerId).orElse("none"));
+        return registry;
     }
 
     @Bean
     @Primary
-    public LlmReviewProvider llmReviewProvider(LlmProperties props,
-                                               LocalModelProvider local,
-                                               OpenAiGpt5Provider gpt5,
-                                               AnthropicClaudeProvider claude) {
-        LlmReviewProvider provider = switch (props.provider()) {
-            case "local" -> local;
-            case "gpt5" -> gpt5;
-            case "claude" -> claude;
-            default -> throw new IllegalStateException("Unknown LLM provider: " + props.provider());
-        };
-        log.info("Active LLM provider: {} (review-model={})", provider.providerId(), props.reviewModel());
-        return provider;
+    public LlmReviewProvider llmReviewProvider(LlmProviderRegistry registry) {
+        return registry.primary();
     }
 }

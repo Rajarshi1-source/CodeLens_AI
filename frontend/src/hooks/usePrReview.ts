@@ -33,6 +33,7 @@ export function usePrReview(prId: PrId): {
       void qc.invalidateQueries({ queryKey: ['comments', prId] });
       void qc.invalidateQueries({ queryKey: ['pr', prId] });
       void qc.invalidateQueries({ queryKey: ['summary', prId] });
+      void qc.invalidateQueries({ queryKey: ['diff', prId] });
       void qc.invalidateQueries({ queryKey: ['prs'] });
     }
   }, [stream.status, prId, qc]);

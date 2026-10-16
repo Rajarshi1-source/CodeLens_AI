@@ -92,7 +92,6 @@ export function useReviewStream(prId: PrId): StreamState {
         // already unsubscribed after the reply
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- `update` only touches refs/setters
   }, [client, connected, prId]);
 
   return state;

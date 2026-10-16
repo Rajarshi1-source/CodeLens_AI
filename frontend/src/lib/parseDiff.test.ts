@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDiff } from './parseDiff';
+import { newLineNumbers, parseDiff, toSplitRows } from './parseDiff';
 
 const SAMPLE = `diff --git a/src/app.ts b/src/app.ts
 index 1234567..89abcde 100644
@@ -51,5 +51,47 @@ describe('parseDiff', () => {
     );
     expect(bin).toHaveLength(1);
     expect(bin[0].isBinary).toBe(true);
+  });
+});
+
+describe('parseDiff — absolute line numbers', () => {
+  const HUNK = `diff --git a/src/x.ts b/src/x.ts
+--- a/src/x.ts
++++ b/src/x.ts
+@@ -40,4 +40,5 @@ function f() {
+ const a = 1;
+-const b = 2;
++const b = 3;
++const c = 4;
+ return a;
+ }
+`;
+
+  it('numbers rows from the @@ header, not from 1', () => {
+    const [f] = parseDiff(HUNK);
+    const rows = f.hunks[0].rows;
+    expect(rows[0]).toMatchObject({ kind: 'context', oldNo: 40, newNo: 40 });
+    expect(rows[1]).toMatchObject({ kind: 'del', oldNo: 41 });
+    expect(rows[2]).toMatchObject({ kind: 'add', newNo: 41 });
+    expect(rows[3]).toMatchObject({ kind: 'add', newNo: 42 });
+    expect(rows[4]).toMatchObject({ kind: 'context', oldNo: 42, newNo: 43 });
+  });
+
+  it('exposes the new-side line numbers a comment can anchor to', () => {
+    const [f] = parseDiff(HUNK);
+    expect([...newLineNumbers(f)].sort((a, b) => a - b)).toEqual([40, 41, 42, 43, 44]);
+  });
+
+  it('pairs deletions with additions in split view', () => {
+    const [f] = parseDiff(HUNK);
+    const split = toSplitRows(f.hunks[0].rows);
+    expect(split[1]).toMatchObject({ left: { kind: 'del', oldNo: 41 }, right: { kind: 'add', newNo: 41 } });
+    expect(split[2].left).toBeUndefined();
+    expect(split[2].right).toMatchObject({ kind: 'add', newNo: 42 });
+  });
+
+  it('accepts a plain ---/+++ diff without the git header', () => {
+    const files = parseDiff('--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n');
+    expect(files.map((f) => f.path)).toEqual(['a.py']);
   });
 });

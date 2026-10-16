@@ -1,12 +1,8 @@
 import type { ReactNode } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatUsd } from '@/lib/format';
 import type { ReviewSummary } from '@/types/domain';
 
-export function formatUsd(v: number | null | undefined): string {
-  if (v == null) return '—';
-  if (v === 0) return '$0.00';
-  return v < 0.01 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`;
-}
 
 /** What the review cost: model(s) that served it, tokens in/out, USD, and how much repo context was used. */
 export function CostPanel({ summary }: { summary: ReviewSummary }) {

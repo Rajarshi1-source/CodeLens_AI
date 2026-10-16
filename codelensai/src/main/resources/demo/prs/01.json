@@ -1,0 +1,9 @@
+{
+  "number": 1,
+  "title": "Add password login for storefront accounts",
+  "author": "demo-bob",
+  "branchFrom": "feature/password-login",
+  "branchTo": "main",
+  "headSha": "1a6c0b8f3d2e4f5a6b7c8d9e0f1a2b3c4d5e6f70",
+  "reviewOnSeed": true
+}

@@ -1,0 +1,4 @@
+# Shell scripts run inside Linux (WSL, CI, containers): never convert them to CRLF.
+*.sh text eol=lf
+*.diff text eol=lf
+*.patch text eol=lf

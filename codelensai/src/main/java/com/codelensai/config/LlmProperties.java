@@ -2,7 +2,11 @@ package com.codelensai.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Config-driven LLM settings bound from {@code codelens.llm.*}. The model is config, not code. */
+/**
+ * Config-driven LLM settings bound from {@code codelens.llm.*}. The model is config, not code. The
+ * {@code review-model}/{@code summary-model}/{@code openai-*} keys configure the OpenAI provider; Claude,
+ * pricing and the daily budget have their own records ({@code codelens.llm.claude|pricing|budget}).
+ */
 @ConfigurationProperties(prefix = "codelens.llm")
 public record LlmProperties(
         String provider,
@@ -13,7 +17,6 @@ public record LlmProperties(
         Integer maxTokensPerChunk,
         Double confidenceThreshold,
         String fallbackProvider,
-        Long dailyTokenBudget,
         String openaiApiKey,
         String openaiBaseUrl
 ) {

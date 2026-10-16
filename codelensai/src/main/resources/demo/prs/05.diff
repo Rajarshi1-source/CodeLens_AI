@@ -1,0 +1,20 @@
+diff --git a/src/main/java/com/storefront/report/ReportExporter.java b/src/main/java/com/storefront/report/ReportExporter.java
+index 8a3f7c1..c29d0e6 100644
+--- a/src/main/java/com/storefront/report/ReportExporter.java
++++ b/src/main/java/com/storefront/report/ReportExporter.java
+@@ -12,7 +12,15 @@ public class ReportExporter {
+         this.store = store;
+     }
+
+     public Report findReport(String id) {
++        if (id == null || id.isBlank()) {
++            return null;
++        }
+         return store.get(id);
+     }
++
++    public String exportTemplate(Path template) {
++        String body = Files.readString(template);
++        return body.replace("{{generatedAt}}", java.time.Instant.now().toString());
++    }
+ }

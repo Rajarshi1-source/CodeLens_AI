@@ -1,0 +1,22 @@
+diff --git a/src/main/java/com/storefront/inventory/StockCounter.java b/src/main/java/com/storefront/inventory/StockCounter.java
+index 51a0c2e..e83d9f4 100644
+--- a/src/main/java/com/storefront/inventory/StockCounter.java
++++ b/src/main/java/com/storefront/inventory/StockCounter.java
+@@ -11,8 +11,17 @@ public class StockCounter {
+     public boolean reserve(String sku, int quantity) {
+         Stock stock = inventory.get(sku);
+         if (stock == null || stock.available() < quantity) {
+             return false;
+         }
+         stock.take(quantity);
++        reserved++;
+         return true;
+     }
++
++    public int availableFor(String sku) {
++        return inventory.get(sku).available();
++    }
++
++    public int lastSlot(int[] slots) {
++        return slots[slots.length + 1];
++    }

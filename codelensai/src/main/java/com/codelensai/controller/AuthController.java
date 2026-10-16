@@ -40,9 +40,9 @@ public class AuthController {
             return ResponseEntity.status(401).build();
         }
         return ResponseEntity.ok(Map.of(
-                "login", String.valueOf(principal.getAttribute("login")),
-                "name", String.valueOf(principal.getAttribute("name")),
-                "avatarUrl", String.valueOf(principal.getAttribute("avatar_url"))));
+                "login", String.valueOf((Object) principal.getAttribute("login")),
+                "name", String.valueOf((Object) principal.getAttribute("name")),
+                "avatarUrl", String.valueOf((Object) principal.getAttribute("avatar_url"))));
     }
 
     @GetMapping("/config")

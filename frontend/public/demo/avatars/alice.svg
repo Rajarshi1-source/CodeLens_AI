@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Alice">
+  <rect width="64" height="64" rx="32" fill="#6d5bd0"/>
+  <circle cx="32" cy="25" r="11" fill="#fff" fill-opacity="0.92"/>
+  <path d="M12 56c3-11 11-17 20-17s17 6 20 17" fill="#fff" fill-opacity="0.92"/>
+  <text x="32" y="30" text-anchor="middle" font-family="system-ui,sans-serif" font-size="12" font-weight="700" fill="#6d5bd0">A</text>
+</svg>

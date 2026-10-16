@@ -90,6 +90,16 @@ describe('parseDiff — absolute line numbers', () => {
     expect(split[2].right).toMatchObject({ kind: 'add', newNo: 42 });
   });
 
+  it('counts a blank context line whose leading space was stripped', () => {
+    // Line 9 is blank context written as "" instead of " "; the secret must stay on new line 10.
+    const [f] = parseDiff('--- a/A.java\n+++ b/A.java\n@@ -8,2 +8,3 @@\n class A {\n\n+  String k = "x";\n');
+    expect(f.hunks[0].rows.map((r) => [r.kind, r.newNo])).toEqual([
+      ['context', 8],
+      ['context', 9],
+      ['add', 10],
+    ]);
+  });
+
   it('accepts a plain ---/+++ diff without the git header', () => {
     const files = parseDiff('--- a/a.py\n+++ b/a.py\n@@ -1 +1 @@\n-x = 1\n+x = 2\n');
     expect(files.map((f) => f.path)).toEqual(['a.py']);

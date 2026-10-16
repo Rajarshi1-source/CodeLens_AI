@@ -77,7 +77,7 @@ export function DiffFileTable({
   const gutter = (no: number | undefined, focusLine?: number) => {
     const viewers = focusLine !== undefined ? focusByLine?.get(focusLine) : undefined;
     return (
-      <td className="relative w-12 select-none border-r bg-[var(--diff-gutter)] px-2 text-right text-muted-foreground">
+      <td className="relative select-none border-r align-top bg-[var(--diff-gutter)] px-2 text-right text-muted-foreground">
         {viewers?.length ? (
           <span
             className="absolute left-0.5 top-1/2 flex -translate-y-1/2"
@@ -95,7 +95,12 @@ export function DiffFileTable({
   };
 
   const cell = (row: DiffRow | undefined) => (
-    <td className={cn('whitespace-pre px-2', row ? ROW_BG[row.kind] : 'bg-muted/30')}>
+    <td
+      className={cn(
+        'whitespace-pre-wrap px-2 align-top [overflow-wrap:anywhere]',
+        row ? ROW_BG[row.kind] : 'bg-muted/30',
+      )}
+    >
       {row ? (
         <>
           <span aria-hidden className="mr-2 select-none text-muted-foreground">
@@ -109,7 +114,22 @@ export function DiffFileTable({
 
   return (
     <div className="overflow-x-auto rounded-md border" onMouseLeave={() => onFocusLine?.(null)}>
-      <table className="w-full border-collapse font-mono text-xs leading-5" data-testid="diff-table" data-mode={mode}>
+      <table className="w-full table-fixed border-collapse font-mono text-xs leading-5" data-testid="diff-table" data-mode={mode}>
+        {/* Fixed layout: gutters are 3rem, code columns share the rest (50/50 in split mode); long lines wrap. */}
+        {mode === 'split' ? (
+          <colgroup>
+            <col className="w-12" />
+            <col />
+            <col className="w-12" />
+            <col />
+          </colgroup>
+        ) : (
+          <colgroup>
+            <col className="w-12" />
+            <col className="w-12" />
+            <col />
+          </colgroup>
+        )}
         <tbody>
           {file.hunks.map((hunk, hi) => (
             <Fragment key={hi}>

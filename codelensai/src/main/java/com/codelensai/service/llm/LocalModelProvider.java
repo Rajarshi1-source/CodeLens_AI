@@ -10,6 +10,7 @@ import com.codelensai.model.enums.Severity;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,6 +28,17 @@ import java.util.regex.Pattern;
  * reproducible without an API key.
  */
 public final class LocalModelProvider implements LlmReviewProvider {
+
+    /** Optional delay between emitted events so the demo shows findings streaming in (0 = none). */
+    private final Duration pace;
+
+    public LocalModelProvider() {
+        this(Duration.ZERO);
+    }
+
+    public LocalModelProvider(Duration pace) {
+        this.pace = pace == null || pace.isNegative() ? Duration.ZERO : pace;
+    }
 
     public static final String MODEL = "local-mock";
 
@@ -84,7 +96,8 @@ public final class LocalModelProvider implements LlmReviewProvider {
                     outputChars / 4, true);
             List<ReviewEvent> events = new ArrayList<>(findings);
             events.add(usage);
-            return Flux.fromIterable(events);
+            Flux<ReviewEvent> out = Flux.fromIterable(events);
+            return pace.isZero() ? out : out.delayElements(pace);
         });
     }
 

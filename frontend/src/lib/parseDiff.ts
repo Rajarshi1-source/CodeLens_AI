@@ -40,7 +40,7 @@ export interface SplitRow {
 }
 
 const DEV_NULL = '/dev/null';
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
 
 function stripPrefix(raw: string): string {
   const p = raw.trim().split('\t')[0];
@@ -61,6 +61,10 @@ export function parseDiff(unified: string): FileDiff[] {
   let hunk: DiffHunk | null = null;
   let oldNo = 0;
   let newNo = 0;
+  // Lines the current hunk header still promises on each side (used to tell a blank context line
+  // whose leading space was stripped from the trailing-newline artifact).
+  let oldLeft = 0;
+  let newLeft = 0;
 
   const flush = () => {
     if (!current) return;
@@ -103,25 +107,32 @@ export function parseDiff(unified: string): FileDiff[] {
     const header = HUNK_HEADER.exec(line);
     if (header) {
       oldNo = Number(header[1]);
-      newNo = Number(header[2]);
+      newNo = Number(header[3]);
+      oldLeft = header[2] === undefined ? 1 : Number(header[2]);
+      newLeft = header[4] === undefined ? 1 : Number(header[4]);
       hunk = { header: line, oldStart: oldNo, newStart: newNo, rows: [] };
       current.hunks.push(hunk);
       continue;
     }
     if (!hunk) continue; // file-meta lines (index, mode, rename...) before the first hunk
     if (line.startsWith('\\')) continue; // "\ No newline at end of file"
-    // A genuinely empty split element is a trailing-newline artifact; real blank lines in a unified
-    // diff carry a leading-space prefix (so they arrive here as " ", not "").
-    if (line === '') continue;
+    // A blank context line should arrive as " ", but editors and some tools strip that space. Inside a
+    // hunk that still expects lines on both sides "" is such a context line (git apply accepts it too);
+    // otherwise it is the trailing-newline artifact of splitting on newlines.
+    if (line === '' && (oldLeft <= 0 || newLeft <= 0)) continue;
 
-    const marker = line[0];
+    const marker = line[0] ?? ' ';
     const text = line.slice(1);
     if (marker === '+') {
       hunk.rows.push({ kind: 'add', newNo: newNo++, text });
+      newLeft--;
     } else if (marker === '-') {
       hunk.rows.push({ kind: 'del', oldNo: oldNo++, text });
+      oldLeft--;
     } else {
       hunk.rows.push({ kind: 'context', oldNo: oldNo++, newNo: newNo++, text });
+      oldLeft--;
+      newLeft--;
     }
   }
   flush();

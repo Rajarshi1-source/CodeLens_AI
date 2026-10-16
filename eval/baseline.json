@@ -9,5 +9,5 @@
   "cross_file_recall": 1.0,
   "must_not_flag_hits": 0,
   "risk_accuracy": 1.0,
-  "mean_tokens_per_review": 488.2
+  "mean_tokens_per_review": 666.7
 }

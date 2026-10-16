@@ -150,13 +150,98 @@ jobs:
             eval-results.json
             codelensai/backend.log
 
+  # Playwright end-to-end suite against the real backend in the `demo` profile (seeded repo + PRs,
+  # password-less demo login, offline paced LLM). Justified for this project: its core value — live
+  # streaming over STOMP, resume after reconnect, presence between two users, inline anchoring — only
+  # exists when the browser, the proxy, Spring, Redis and Postgres run together.
+  e2e:
+    name: E2E (Playwright, demo profile)
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: codelensai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - name: Build backend jar
+        working-directory: codelensai
+        run: |
+          chmod +x mvnw
+          ./mvnw clean package -DskipTests -B
+      - name: Boot backend (demo profile)
+        working-directory: codelensai
+        env:
+          SPRING_PROFILES_ACTIVE: demo
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/codelensai
+          SPRING_DATASOURCE_USERNAME: postgres
+          SPRING_DATASOURCE_PASSWORD: postgres
+          SPRING_REDIS_HOST: localhost
+          SPRING_REDIS_PORT: "6379"
+        run: |
+          java -jar target/*.jar > backend.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8080/actuator/health > /dev/null; then echo "Backend is up"; exit 0; fi
+            sleep 2
+          done
+          echo "Backend failed to start"; cat backend.log; exit 1
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run E2E
+        working-directory: frontend
+        run: npm run e2e
+      - name: Upload Playwright report and backend log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+            codelensai/backend.log
+
   # Build + push Docker images to DockerHub on main. Inert until you opt in:
   #   - set repository Actions VARIABLE  ENABLE_DOCKER_PUSH = true
   #   - set repository SECRETS  DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
   build-and-push:
     name: Build and push images
     runs-on: ubuntu-latest
-    needs: [test-backend, test-frontend, review-quality-eval]
+    needs: [test-backend, test-frontend, review-quality-eval, e2e]
     if: ${{ github.ref == 'refs/heads/main' && vars.ENABLE_DOCKER_PUSH == 'true' }}
     env:
       BACKEND_IMAGE: ${{ secrets.DOCKERHUB_USERNAME }}/codelensai-backend

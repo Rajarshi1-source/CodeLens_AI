@@ -1,6 +1,6 @@
 # ADR 0002 — Model-agnostic LLM adapter
 
-- Status: Accepted
+- Status: Accepted; amended by [ADR 0009](0009-llm-event-model-claude-and-cost-controls.md) (ReviewEvent stream; Claude provider implemented)
 - Date: 2026
 
 ## Context

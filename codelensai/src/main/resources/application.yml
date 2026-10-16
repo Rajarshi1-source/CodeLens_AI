@@ -56,6 +56,8 @@ codelens:
     max-tokens-per-chunk: 4000
     confidence-threshold: 0.4
     fallback-provider: ${LLM_FALLBACK_PROVIDER:local}   # cross-vendor failover when the primary's breaker opens
+    local:
+      pace-ms: ${CODELENS_LOCAL_PACE_MS:0}   # delay between the offline provider's events (demo: 700)
     openai-api-key: ${OPENAI_API_KEY:}
     openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
     claude:

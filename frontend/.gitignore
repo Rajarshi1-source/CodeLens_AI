@@ -10,3 +10,9 @@ coverage
 !.vscode/extensions.json
 .idea
 .DS_Store
+
+# Playwright
+/e2e/.auth/
+/test-results/
+/playwright-report/
+/blob-report/

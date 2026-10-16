@@ -1,1 +1,1 @@
-{"root":["./vite.config.ts"],"version":"5.9.3"}
+{"root":["./vite.config.ts","./playwright.config.ts","./e2e/auth.spec.ts","./e2e/dashboard-and-list.spec.ts","./e2e/fixtures.ts","./e2e/global-setup.ts","./e2e/live-review.spec.ts","./e2e/pr-review.spec.ts","./e2e/presence-and-theme.spec.ts","./e2e/screenshots.spec.ts"],"version":"5.9.3"}

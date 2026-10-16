@@ -7,6 +7,9 @@ export function useRepos() {
   return useQuery<Repository[]>({
     queryKey: ['repos'],
     queryFn: repoService.list,
+    // Indexing runs in the background (index-jobs stream): poll until every repo has settled.
+    refetchInterval: (query) =>
+      query.state.data?.some((r) => r.indexStatus === 'INDEXING' || r.indexStatus === 'QUEUED') ? 2000 : false,
   });
 }
 

@@ -11,6 +11,9 @@ The complete project-initialization and build path for the CodeLens backend. Loa
 6. Maven Docker build stage
 7. Notes
 8. Boot 3 -> Boot 4 gotchas
+9. Local infrastructure without Docker (WSL Ubuntu)
+10. Demo profile, tests, E2E and eval
+11. Environment variables
 
 ## 1. Locked decisions (and why)
 
@@ -33,8 +36,10 @@ Three things are **not** available on Initializr and must be added to `pom.xml` 
 | `spring-boot-starter-webclient` | Initializr only offers `webflux` (the whole reactive *server* stack). CodeLens wants `WebClient` + `Flux` only, so take the leaner starter manually. |
 | `spring-boot-starter-aspectj` | No Initializr entry. Required for the Resilience4j annotations — see §8. |
 | `resilience4j-spring-boot4` | Resilience4j has never been on Initializr. |
+| `com.anthropic:anthropic-java` | The official Anthropic Java SDK for the Claude provider (brings Jackson 2 + OkHttp; coexists with Boot's Jackson 3 — different packages). |
+| `com.github.javaparser:javaparser-core` | G4 structure-aware chunking: exact Java method/class ranges, pure Java. |
 
-`pgvector` is a post-MVP add (the `vector` extension plus native queries).
+pgvector needs **no Java dependency**: the `vector` extension is created by `schema.sql` (`CREATE EXTENSION IF NOT EXISTS vector`) and `code_chunks` / `code_symbols` are accessed through `JdbcClient` with `CAST(:v AS vector)`. The database must be a pgvector build (`pgvector/pgvector:pg16` image, or the `postgresql-16-pgvector` package).
 
 ## 3. Generate with one curl command
 
@@ -53,7 +58,7 @@ Note that `web` still resolves to `spring-boot-starter-web` on Initializr even t
 
 ## 4. Full `pom.xml`
 
-This is the project's actual `pom.xml` — Initializr selections plus the three manual adds from §2. Testcontainers, Micrometer and Jackson versions are managed by the Spring Boot parent BOM.
+This is the project's actual `pom.xml` — Initializr selections plus the manual adds from §2. Testcontainers, Micrometer and Jackson versions are managed by the Spring Boot parent BOM; Resilience4j, the Anthropic SDK and JavaParser are pinned. Surefire, Failsafe and `spring-boot:run` force `-Duser.timezone=UTC` (PostgreSQL 16+ rejects legacy JVM zone ids such as `Asia/Calcutta`, and the token budget is keyed by UTC day).
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -74,6 +79,8 @@ This is the project's actual `pom.xml` — Initializr selections plus the three 
     <properties>
         <java.version>21</java.version>
         <resilience4j.version>2.4.0</resilience4j.version>
+        <anthropic-java.version>2.34.0</anthropic-java.version>
+        <javaparser.version>3.26.4</javaparser.version>
     </properties>
     <dependencies>
         <dependency>
@@ -136,6 +143,19 @@ This is the project's actual `pom.xml` — Initializr selections plus the three 
             <version>${resilience4j.version}</version>
         </dependency>
 
+        <!-- Official Anthropic SDK for the Claude provider. It brings Jackson 2 (com.fasterxml) and OkHttp;
+             these coexist with Boot 4's Jackson 3 (tools.jackson) because the packages differ. -->
+        <dependency>
+            <groupId>com.anthropic</groupId>
+            <artifactId>anthropic-java</artifactId>
+            <version>${anthropic-java.version}</version>
+        </dependency>
+        <!-- G4 structure-aware chunking: exact Java method/class ranges (pure Java, no native libs). -->
+        <dependency>
+            <groupId>com.github.javaparser</groupId>
+            <artifactId>javaparser-core</artifactId>
+            <version>${javaparser.version}</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
@@ -206,11 +226,24 @@ This is the project's actual `pom.xml` — Initializr selections plus the three 
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
+            </plugin>
+            <!-- UTC JVM for tests: PostgreSQL 18 rejects legacy tz aliases (e.g. Asia/Calcutta) that some
+                 OS defaults still report, and all persisted timestamps are Instants anyway. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <jvmArguments>-Duser.timezone=UTC</jvmArguments>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>
@@ -263,7 +296,7 @@ This is the project's actual `pom.xml` — Initializr selections plus the three 
 
 Enable virtual threads in `application.yml`: `spring.threads.virtual.enabled: true` (see `codelens-java21`).
 
-For G1 later, add pgvector support: the `vector` Postgres extension plus a Java integration (`com.pgvector:pgvector` or native queries) — not a day-one dependency.
+G1 retrieval uses pgvector through plain SQL (see §2) — no extra Java dependency.
 
 ## 5. Build & run on Windows 11
 
@@ -308,10 +341,13 @@ Java 21 base images stay correct on Boot 4.1.x.
 ## 7. Notes
 
 - `spring-boot-starter-webmvc` gives the servlet stack on Tomcat (REST + WebSocket); `spring-boot-starter-webclient` supplies `WebClient` and `Flux` for the LLM streaming adapter without the reactive *server*. There is no MVC-vs-reactive ambiguity to reason about: no controller returns `Flux`/`Mono`, and reactive types stay internal to the provider adapter and the STOMP relay.
-- The LLM provider needs no starter — call it through `WebClient` behind the sealed `LlmReviewProvider` adapter, or add a vendor SDK later.
+- LLM providers sit behind the sealed `LlmReviewProvider`: OpenAI through `WebClient` (SSE), Claude through the official Anthropic Java SDK (`maxRetries(0)` — Resilience4j owns retries), and the offline `local` provider.
 - Keep secrets (GitHub app id/secret, LLM API key, DB creds) in environment variables, never in `application.yml` committed to the repo.
 
 ## 8. Boot 3 -> Boot 4 gotchas
+9. Local infrastructure without Docker (WSL Ubuntu)
+10. Demo profile, tests, E2E and eval
+11. Environment variables
 
 Things that bite on this project specifically. All verified against Boot 4.1.1.
 
@@ -323,3 +359,66 @@ Things that bite on this project specifically. All verified against Boot 4.1.1.
 - **Deprecated starter aliases:** `spring-boot-starter-oauth2-client` and `-oauth2-resource-server` are deprecated in favour of `spring-boot-starter-security-oauth2-client` / `-security-oauth2-resource-server`.
 - **`application.yml` needed no changes.** Every key this project sets was checked against the Boot 4.0 and 4.1 configuration changelogs. If you add config, `spring-boot-properties-migrator` (runtime, optional) reports renamed keys at startup — add it for one boot cycle, then remove it.
 - **Automation:** `org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0` plus `org.openrewrite.java.jackson.UpgradeJackson_2_3` do most of the mechanical work. Neither knows about the `spring-boot-starter-aspectj` requirement above.
+
+## 9. Local infrastructure without Docker (WSL Ubuntu)
+
+When Docker is not available, run PostgreSQL 16 + pgvector and Redis inside WSL Ubuntu and keep the backend and Vite on Windows. `scripts/wsl-infra-setup.sh` installs `postgresql-16`, `postgresql-16-pgvector` and `redis-server` (it asks for your sudo password), moves Postgres to **port 5433** (so it never collides with a Windows Postgres on 5432), creates the `codelensai` and `codelensai_it` databases, and sets Redis to `maxmemory-policy volatile-lru`.
+
+```
+wsl -d Ubuntu -- bash scripts/wsl-infra-setup.sh
+```
+
+WSL stops an idle distro after a while; keep it alive while you work (e.g. a terminal running `wsl -d Ubuntu -- bash -c "sudo service postgresql start; sudo service redis-server start; exec sleep infinity"`). Point the backend at it:
+
+```
+SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/codelensai
+SPRING_REDIS_HOST=127.0.0.1
+SPRING_DOCKER_COMPOSE_ENABLED=false     # stop spring-boot-docker-compose from running `docker compose up`
+```
+
+## 10. Demo profile, tests, E2E and eval
+
+**Demo** (seeded users, repository and five PRs; password-less login; offline LLM paced so streaming is visible; no GitHub app or API key):
+
+```
+scripts\run-demo-backend.ps1                        REM Windows + WSL infra (sets the env vars above)
+SPRING_PROFILES_ACTIVE=demo ./mvnw spring-boot:run  # anywhere else
+cd frontend && npm run dev                          # http://localhost:5173 -> "Demo as Alice"
+```
+
+The demo login/reset endpoints exist only under the `demo` profile, accept loopback callers only, and `DemoSafetyGuard` refuses to start the profile together with `prod` or a real GitHub OAuth client id. `POST /api/demo/reset` re-seeds from scratch.
+
+**Integration tests** (`*IT`, Failsafe) use Testcontainers (`pgvector/pgvector:pg16`, `redis:7`). Without Docker they *abort* locally; with `CODELENS_REQUIRE_DOCKER=true` (CI) they *fail*. To run them against the WSL infra instead:
+
+```
+CODELENS_IT_EXTERNAL_INFRA=true SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.1:5433/codelensai_it SPRING_REDIS_HOST=127.0.0.1 ./mvnw -B verify
+# one IT only:  ... ./mvnw -B verify -Dtest=NONE -Dsurefire.failIfNoSpecifiedTests=false -Dit.test=ReviewPipelineIT
+```
+
+**Frontend**: `npm run lint && npm run test && npm run build` (Vitest excludes `e2e/`).
+
+**Playwright E2E** against a running demo-profile backend: `npm run e2e` builds the SPA and serves it with `vite preview` on :4173 (same `/api` + `/ws` proxy as dev); global setup resets the demo data and saves Alice's and Bob's sessions. `npm run e2e:screenshots` regenerates `docs/images/*.png`. First time: `npx playwright install chromium`.
+
+**Eval** (needs `CODELENS_INTERNAL_ENABLED=true`, which the demo profile sets): `python eval/run_eval.py --ci --ablate-retrieval`; harness unit tests: `python -m pytest eval/test_scoring.py`. After changing cases in `eval/build_testset.py`, run it to regenerate `testset.jsonl`.
+
+## 11. Environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SPRING_DATASOURCE_URL` / `_USERNAME` / `_PASSWORD` | `localhost:5432/codelensai`, `postgres`/`postgres` | PostgreSQL (must have pgvector) |
+| `SPRING_REDIS_HOST` / `SPRING_REDIS_PORT` | `localhost` / `6379` | Redis |
+| `SPRING_PROFILES_ACTIVE` | — | `demo` for the seeded demo; `prod` for deployments |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | placeholders | GitHub OAuth app |
+| `GITHUB_WEBHOOK_SECRET` | `dev-webhook-secret` | global webhook HMAC secret (repos connected in the UI get their own) |
+| `LLM_PROVIDER` | `local` | `local` · `gpt5` · `claude` |
+| `LLM_FALLBACK_PROVIDER` | `local` | serves reviews when the primary fails or its breaker is open |
+| `LLM_DAILY_TOKEN_BUDGET` | `2000000` | UTC-day token cap (not applied to zero-price models) |
+| `ANTHROPIC_API_KEY`, `CLAUDE_REVIEW_MODEL`, `CLAUDE_SUMMARY_MODEL`, `CLAUDE_EFFORT` | —, `claude-opus-5-5`, `claude-opus-5-5`, `high` | Claude provider |
+| `OPENAI_API_KEY`, `REVIEW_MODEL`, `SUMMARY_MODEL` | —, `gpt-5`, `gpt-5-mini` | OpenAI provider |
+| `REVIEW_PROMPT_VERSION` | `v2` | `prompts/review_<version>.txt` |
+| `CODELENS_EMBEDDING_PROVIDER` | `hashing` | `hashing` (offline) · `openai` (`text-embedding-3-small`, 512 dims) |
+| `CODELENS_RETRIEVAL_ENABLED` / `CODELENS_INDEXING_ENABLED` | `true` / `true` | G1 kill switches |
+| `CODELENS_INTERNAL_ENABLED` / `CODELENS_INTERNAL_TOKEN` | `false` / — | eval API `/api/internal/**` (404 when disabled; `X-Internal-Token` when set) |
+| `CODELENS_ALLOWED_ORIGINS` | localhost dev ports | WebSocket handshake origins |
+| `CODELENS_LOCAL_PACE_MS` | `0` (`700` in demo) | delay between the offline provider's events |
+| `CODELENS_ENCRYPTION_SECRET` | dev value | AES-GCM key for stored GitHub tokens |

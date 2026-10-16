@@ -1,6 +1,6 @@
 # ADR 0004 — OAuth2-login session auth (JWT resource server deferred)
 
-- Status: Accepted (deviation from the master plan, to revisit)
+- Status: Accepted; amended by [ADR 0006](0006-demo-profile-and-websocket-auth.md) (demo profile, STOMP auth, membership checks). JWT still deferred.
 - Date: 2026
 
 ## Context

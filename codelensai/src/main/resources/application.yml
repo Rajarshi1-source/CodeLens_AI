@@ -48,18 +48,79 @@ server:
 codelens:
   llm:
     provider: ${LLM_PROVIDER:local}        # local | gpt5 | claude
-    review-model: ${REVIEW_MODEL:local-mock}
-    summary-model: ${SUMMARY_MODEL:local-mock}
+    # OpenAI settings (provider=gpt5). Claude has its own block below.
+    review-model: ${REVIEW_MODEL:gpt-5}
+    summary-model: ${SUMMARY_MODEL:gpt-5-mini}
     temperature: 0.1
-    max-output-tokens: 2000
+    max-output-tokens: ${LLM_MAX_OUTPUT_TOKENS:8000}
     max-tokens-per-chunk: 4000
     confidence-threshold: 0.4
-    fallback-provider: ${LLM_FALLBACK_PROVIDER:local}
-    daily-token-budget: ${LLM_DAILY_TOKEN_BUDGET:2000000}
+    fallback-provider: ${LLM_FALLBACK_PROVIDER:local}   # cross-vendor failover when the primary's breaker opens
     openai-api-key: ${OPENAI_API_KEY:}
     openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+    claude:
+      api-key: ${ANTHROPIC_API_KEY:}
+      base-url: ${ANTHROPIC_BASE_URL:}
+      review-model: ${CLAUDE_REVIEW_MODEL:claude-opus-5-5}
+      summary-model: ${CLAUDE_SUMMARY_MODEL:claude-opus-5-5}   # claude-haiku-5-5 is the cheaper option
+      effort: ${CLAUDE_EFFORT:high}
+      max-tokens: ${CLAUDE_MAX_TOKENS:16000}
+      server-fallback: true            # fallbacks:"default" on refusal (never sent for Haiku)
+    budget:
+      daily-tokens: ${LLM_DAILY_TOKEN_BUDGET:2000000}
+      enforce-for-free-models: false
+    pricing:
+      models:                           # USD per million tokens
+        "[local-mock]":
+          input-per-mtok: 0
+          output-per-mtok: 0
+        "[claude-opus-5-5]":
+          input-per-mtok: 4.00
+          output-per-mtok: 20.00
+        "[claude-sonnet-5-5]":
+          input-per-mtok: 2.00
+          output-per-mtok: 10.00
+        "[claude-haiku-5-5]":
+          input-per-mtok: 0.10
+          output-per-mtok: 0.50
+        "[gpt-5]":                      # fill in from the vendor price sheet
+          input-per-mtok: ${GPT5_INPUT_PRICE:0}
+          output-per-mtok: ${GPT5_OUTPUT_PRICE:0}
+        "[gpt-5-mini]":
+          input-per-mtok: ${GPT5_MINI_INPUT_PRICE:0}
+          output-per-mtok: ${GPT5_MINI_OUTPUT_PRICE:0}
   prompts:
-    review-version: ${REVIEW_PROMPT_VERSION:v1}
+    review-version: ${REVIEW_PROMPT_VERSION:v2}
+  retrieval:
+    enabled: ${CODELENS_RETRIEVAL_ENABLED:true}
+    max-context-tokens: 1500
+    top-k: 4
+  embedding:
+    provider: ${CODELENS_EMBEDDING_PROVIDER:hashing}   # hashing (offline) | openai
+    dimensions: 512
+    openai-model: text-embedding-3-small
+    openai-api-key: ${OPENAI_API_KEY:}
+    openai-base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+  indexing:
+    enabled: ${CODELENS_INDEXING_ENABLED:true}
+    max-files: 2000
+    max-file-bytes: 200000
+  risk:
+    high-threshold: 60
+    medium-threshold: 30
+  feedback:
+    suppression-enabled: true
+    min-votes: 5
+    dismiss-rate: 0.7
+  presence:
+    ttl-seconds: ${CODELENS_PRESENCE_TTL_SECONDS:45}
+  internal:
+    enabled: ${CODELENS_INTERNAL_ENABLED:false}
+    token: ${CODELENS_INTERNAL_TOKEN:}
+  demo:
+    enabled: false
+  web:
+    allowed-origins: ${CODELENS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:4173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:4173,http://127.0.0.1:3000}
   encryption:
     secret: ${CODELENS_ENCRYPTION_SECRET:dev-only-32-byte-secret-key-change!!}
   langfuse:
@@ -93,10 +154,18 @@ resilience4j:
         failureRateThreshold: 50
         slidingWindowSize: 20
         waitDurationInOpenState: 30s
+        # A refusal or an exhausted budget is not an outage: never trip the breaker for them.
+        ignoreExceptions:
+          - com.codelensai.service.cost.BudgetExceededException
+          - com.codelensai.service.llm.LlmRefusalException
       github:
         failureRateThreshold: 50
         slidingWindowSize: 20
         waitDurationInOpenState: 15s
+      embedding:
+        failureRateThreshold: 50
+        slidingWindowSize: 20
+        waitDurationInOpenState: 30s
   retry:
     instances:
       llm:
@@ -104,9 +173,18 @@ resilience4j:
         waitDuration: 1s
         enableExponentialBackoff: true
         enableRandomizedWait: true
+        # Retrying cannot fix these; they go straight to the fallback method.
+        ignoreExceptions:
+          - com.codelensai.service.cost.BudgetExceededException
+          - com.codelensai.service.llm.LlmRefusalException
+          - io.github.resilience4j.circuitbreaker.CallNotPermittedException
       github:
         maxAttempts: 3
         waitDuration: 500ms
+        enableExponentialBackoff: true
+      embedding:
+        maxAttempts: 3
+        waitDuration: 1s
         enableExponentialBackoff: true
   timelimiter:
     instances:

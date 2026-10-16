@@ -1,19 +1,19 @@
 package com.codelensai.websocket;
 
-import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.connection.Message;
 import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 
 /**
- * Subscribes (via {@code RedisConfig}'s listener container) to {@code review:*} and pushes each event
- * to the STOMP sessions connected to THIS pod. Combined with {@link WebSocketNotifier}'s publish, this
- * is the cross-pod fan-out: produce anywhere, deliver everywhere.
+ * Subscribes (via {@code RedisConfig}'s listener container) to {@code review:*} and pushes each event to
+ * the STOMP sessions connected to THIS pod. Combined with {@link WebSocketNotifier}'s publish, this is the
+ * cross-pod fan-out: produce anywhere, deliver everywhere. Payloads are relayed verbatim (already JSON).
  */
 @Component
 public class ReviewRelay implements MessageListener {
@@ -34,16 +34,10 @@ public class ReviewRelay implements MessageListener {
             String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
             String prId = channel.substring(channel.indexOf(':') + 1);
             ReviewBusMessage bus = objectMapper.readValue(message.getBody(), ReviewBusMessage.class);
-
-            switch (bus.kind()) {
-                case ReviewBusMessage.TOKEN ->
-                        stomp.convertAndSend("/topic/pr/" + prId + "/review", bus.token());
-                case ReviewBusMessage.STATUS ->
-                        stomp.convertAndSend("/topic/pr/" + prId + "/status", bus.status());
-                case ReviewBusMessage.ERROR ->
-                        stomp.convertAndSend("/topic/pr/" + prId + "/review",
-                                "{\"error\":\"chunk failed\",\"file\":\"" + bus.errorFile() + "\"}");
-                default -> log.debug("Unknown review bus kind: {}", bus.kind());
+            switch (bus.topic()) {
+                case ReviewBusMessage.REVIEW, ReviewBusMessage.STATUS ->
+                        stomp.convertAndSend("/topic/pr/" + prId + "/" + bus.topic(), bus.payload());
+                default -> log.debug("Unknown review bus topic: {}", bus.topic());
             }
         } catch (Exception e) {
             log.warn("Failed to relay review message: {}", e.getMessage());

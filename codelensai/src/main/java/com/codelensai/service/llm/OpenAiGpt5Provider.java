@@ -2,43 +2,38 @@ package com.codelensai.service.llm;
 
 import com.codelensai.config.LlmProperties;
 import com.codelensai.model.dto.DiffChunk;
+import com.codelensai.model.dto.ReviewEvent;
 import com.codelensai.model.dto.ReviewPromptContext;
-import com.codelensai.model.dto.ReviewToken;
-import com.codelensai.model.enums.Severity;
-import com.codelensai.util.PromptBuilder;
-import tools.jackson.databind.JsonNode;
-import tools.jackson.databind.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.codelensai.model.dto.SummaryContext;
+import com.codelensai.model.dto.SummaryResult;
 import org.springframework.http.MediaType;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Real OpenAI (GPT-5-class) provider behind the sealed {@link LlmReviewProvider} adapter.
  *
- * <p>Uses the chat-completions endpoint in <b>streaming</b> mode (SSE): the model's token deltas
- * arrive as {@code data:} events, which we accumulate and then parse as structured JSON
- * ({@code {"comments":[{file,line,severity,comment,confidence}]}}) — never regex-parsed from prose.
- * Each parsed comment is fragmented into word-level {@link ReviewToken}s so the downstream pipeline
- * streams it to the browser word-by-word, exactly like the mock provider.
+ * <p>Uses chat completions in <b>streaming</b> mode (SSE) with a strict {@code json_schema} response
+ * format. Text deltas are fed to a {@link StreamingCommentParser} as they arrive, so each comment is
+ * emitted the moment it completes — the browser sees the first finding while the model is still
+ * writing. {@code stream_options.include_usage} adds a final chunk carrying real token usage.
  *
- * <p>The diff is passed as clearly-delimited untrusted data via {@link PromptBuilder} to blunt
- * prompt-injection. Selected only when {@code codelens.llm.provider=gpt5}; the MVP default is local.
+ * <p>Reasoning models reject sampling parameters, so no {@code temperature} is sent and the output cap
+ * is {@code max_completion_tokens}. The diff and retrieved context are delimited untrusted data
+ * (see {@link ReviewPromptRenderer}). Selected when {@code codelens.llm.provider=gpt5}.
  */
 public final class OpenAiGpt5Provider implements LlmReviewProvider {
 
-    private static final Logger log = LoggerFactory.getLogger(OpenAiGpt5Provider.class);
     private static final String DONE = "[DONE]";
-    private static final String OUTPUT_FORMAT =
-            "a JSON object {\"comments\": [{\"file\": string, \"line\": number, "
-                    + "\"severity\": \"CRITICAL\"|\"WARNING\"|\"SUGGESTION\", "
-                    + "\"comment\": string, \"confidence\": number 0..1}]}. "
-                    + "Return an empty comments array if the diff is clean.";
 
     private final WebClient openAiWebClient;
     private final ObjectMapper objectMapper;
@@ -51,96 +46,100 @@ public final class OpenAiGpt5Provider implements LlmReviewProvider {
     }
 
     @Override
-    public Flux<ReviewToken> streamReview(ReviewPromptContext ctx) {
-        if (props.openaiApiKey() == null || props.openaiApiKey().isBlank()) {
+    public Flux<ReviewEvent> streamReview(ReviewPromptContext ctx) {
+        if (!hasKey()) {
             return Flux.error(new IllegalStateException(
                     "OPENAI_API_KEY not set — set it or use codelens.llm.provider=local"));
         }
-        DiffChunk chunk = ctx.chunk();
-        String userPrompt = new PromptBuilder()
-                .withSystemContext(ctx.systemContext())
-                .withDiffChunk(chunk)
-                .withLanguageHint(chunk.language())
-                .withOutputFormat(OUTPUT_FORMAT)
-                .build();
+        return Flux.defer(() -> {
+            DiffChunk chunk = ctx.chunk();
+            StreamingCommentParser parser = new StreamingCommentParser(objectMapper, chunk);
+            AtomicReference<ReviewEvent.Usage> usage = new AtomicReference<>();
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("model", props.reviewModel());
+            body.put("max_completion_tokens", props.maxOutputTokens());
+            body.put("stream", true);
+            body.put("stream_options", Map.of("include_usage", true));
+            body.put("response_format", Map.of("type", "json_schema",
+                    "json_schema", Map.of("name", "code_review", "strict", true, "schema", ReviewOutputSchema.schema())));
+            body.put("messages", List.of(
+                    Map.of("role", "system", "content", ctx.systemContext()),
+                    Map.of("role", "user", "content", ReviewPromptRenderer.userPrompt(ctx, false))));
+            return openAiWebClient.post()
+                    .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + props.openaiApiKey())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .accept(MediaType.TEXT_EVENT_STREAM)
+                    .bodyValue(body)
+                    .retrieve()
+                    .bodyToFlux(String.class)
+                    .takeUntil(DONE::equals)
+                    .filter(data -> !DONE.equals(data))
+                    .concatMapIterable(data -> onChunk(data, parser, usage))
+                    .concatWith(Mono.fromSupplier(() -> usage.get() != null ? usage.get()
+                            : new ReviewEvent.Usage(providerId(), props.reviewModel(),
+                            ReviewPromptRenderer.estimateTokens(ReviewPromptRenderer.userPrompt(ctx, true)), 0, true)));
+        });
+    }
 
+    private List<ReviewEvent> onChunk(String data, StreamingCommentParser parser, AtomicReference<ReviewEvent.Usage> usage) {
+        List<ReviewEvent> out = new ArrayList<>();
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(data);
+        } catch (Exception e) {
+            return out;
+        }
+        JsonNode content = root.path("choices").path(0).path("delta").path("content");
+        if (content.isString()) {
+            out.addAll(parser.feed(content.asString()));
+        }
+        JsonNode u = root.path("usage");
+        if (u.isObject()) {
+            usage.set(new ReviewEvent.Usage(providerId(), root.path("model").asString(props.reviewModel()),
+                    u.path("prompt_tokens").asLong(0), u.path("completion_tokens").asLong(0), false));
+        }
+        return out;
+    }
+
+    @Override
+    public Mono<SummaryResult> summarize(SummaryContext ctx) {
+        if (!hasKey()) {
+            return Mono.error(new IllegalStateException("OPENAI_API_KEY not set"));
+        }
+        String model = props.summaryModel() == null || props.summaryModel().isBlank()
+                ? props.reviewModel() : props.summaryModel();
         Map<String, Object> body = Map.of(
-                "model", props.reviewModel(),
-                "temperature", props.temperature(),
-                "max_tokens", props.maxOutputTokens(),
-                "stream", true,
-                "response_format", Map.of("type", "json_object"),
+                "model", model,
+                "max_completion_tokens", 2000,
                 "messages", List.of(
                         Map.of("role", "system", "content", ctx.systemContext()),
-                        Map.of("role", "user", "content", userPrompt)));
-
+                        Map.of("role", "user", "content", SummaryPrompt.render(ctx))));
         return openAiWebClient.post()
                 .uri("/chat/completions")
                 .header("Authorization", "Bearer " + props.openaiApiKey())
                 .contentType(MediaType.APPLICATION_JSON)
-                .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(body)
                 .retrieve()
-                .bodyToFlux(String.class)
-                .takeUntil(DONE::equals)
-                .filter(data -> !DONE.equals(data))
-                .map(this::extractDelta)
-                .reduce(new StringBuilder(), StringBuilder::append)
-                .flatMapMany(sb -> Flux.fromIterable(parseComments(sb.toString(), chunk)));
+                .bodyToMono(JsonNode.class)
+                .map(root -> new SummaryResult(
+                        root.path("choices").path(0).path("message").path("content").asString("").trim(),
+                        new ReviewEvent.Usage(providerId(), root.path("model").asString(model),
+                                root.path("usage").path("prompt_tokens").asLong(0),
+                                root.path("usage").path("completion_tokens").asLong(0), false)));
     }
 
-    /** Pull {@code choices[0].delta.content} out of one streamed chunk; "" if absent. */
-    private String extractDelta(String data) {
-        try {
-            JsonNode root = objectMapper.readTree(data);
-            JsonNode content = root.path("choices").path(0).path("delta").path("content");
-            return content.isString() ? content.asString() : "";
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    private List<ReviewToken> parseComments(String json, DiffChunk chunk) {
-        List<ReviewToken> tokens = new ArrayList<>();
-        if (json.isBlank()) {
-            return tokens;
-        }
-        try {
-            JsonNode comments = objectMapper.readTree(json).path("comments");
-            for (JsonNode c : comments) {
-                String file = c.path("file").asString(chunk.fileName());
-                int line = c.path("line").asInt(chunk.startLine());
-                Severity severity = parseSeverity(c.path("severity").asString("SUGGESTION"));
-                String text = c.path("comment").asString("");
-                if (text.isBlank()) {
-                    continue;
-                }
-                streamWords(tokens, file, line, severity, text);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to parse OpenAI structured output for {}: {}", chunk.fileName(), e.getMessage());
-        }
-        return tokens;
-    }
-
-    private void streamWords(List<ReviewToken> tokens, String file, int line, Severity severity, String text) {
-        String[] words = text.split(" ");
-        for (int i = 0; i < words.length; i++) {
-            String fragment = i == 0 ? words[i] : " " + words[i];
-            tokens.add(new ReviewToken(file, line, severity, fragment));
-        }
-    }
-
-    private Severity parseSeverity(String raw) {
-        try {
-            return Severity.valueOf(raw.trim().toUpperCase());
-        } catch (Exception e) {
-            return Severity.SUGGESTION;
-        }
+    private boolean hasKey() {
+        return props.openaiApiKey() != null && !props.openaiApiKey().isBlank();
     }
 
     @Override
     public String providerId() {
         return "gpt5";
+    }
+
+    @Override
+    public String reviewModel() {
+        return props.reviewModel();
     }
 }

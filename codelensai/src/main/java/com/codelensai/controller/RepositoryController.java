@@ -3,11 +3,9 @@ package com.codelensai.controller;
 import com.codelensai.model.dto.ConnectRepoRequest;
 import com.codelensai.model.dto.RepoDto;
 import com.codelensai.model.entity.User;
+import com.codelensai.security.CurrentUser;
 import com.codelensai.service.RepositoryService;
-import com.codelensai.service.UserService;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,42 +22,35 @@ import java.util.List;
 public class RepositoryController {
 
     private final RepositoryService repositoryService;
-    private final UserService userService;
 
-    public RepositoryController(RepositoryService repositoryService, UserService userService) {
+    public RepositoryController(RepositoryService repositoryService) {
         this.repositoryService = repositoryService;
-        this.userService = userService;
     }
 
     @GetMapping
-    public ResponseEntity<List<RepoDto>> list(@AuthenticationPrincipal OAuth2User principal) {
-        return userService.currentUser(principal)
-                .map(user -> ResponseEntity.ok(
-                        repositoryService.listForUser(user.getId()).stream().map(RepoDto::from).toList()))
-                .orElseGet(() -> ResponseEntity.status(401).build());
+    public List<RepoDto> list(@CurrentUser User user) {
+        return repositoryService.listForUser(user.getId()).stream().map(RepoDto::from).toList();
     }
 
     @PostMapping("/connect")
-    public ResponseEntity<RepoDto> connect(@AuthenticationPrincipal OAuth2User principal,
-                                           @RequestBody ConnectRepoRequest request) {
-        if (request == null || request.fullName() == null || request.fullName().isBlank()) {
+    public ResponseEntity<RepoDto> connect(@CurrentUser User user, @RequestBody ConnectRepoRequest request) {
+        if (request == null || request.fullName() == null || !request.fullName().matches("[\\w.-]+/[\\w.-]+")) {
             return ResponseEntity.badRequest().build();
-        }
-        User user = userService.currentUser(principal).orElse(null);
-        if (user == null) {
-            return ResponseEntity.status(401).build();
         }
         return ResponseEntity.ok(RepoDto.from(
                 repositoryService.connect(user, request.fullName(), request.githubRepoId())));
     }
 
+    /** Queue a full G1 re-index of the default branch. */
+    @PostMapping("/{id}/reindex")
+    public ResponseEntity<Void> reindex(@CurrentUser User user, @PathVariable long id) {
+        return repositoryService.reindex(user, id)
+                ? ResponseEntity.accepted().build()
+                : ResponseEntity.notFound().build();
+    }
+
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> disconnect(@AuthenticationPrincipal OAuth2User principal,
-                                           @PathVariable long id) {
-        User user = userService.currentUser(principal).orElse(null);
-        if (user == null) {
-            return ResponseEntity.status(401).build();
-        }
+    public ResponseEntity<Void> disconnect(@CurrentUser User user, @PathVariable long id) {
         return repositoryService.disconnect(user, id)
                 ? ResponseEntity.noContent().build()
                 : ResponseEntity.notFound().build();

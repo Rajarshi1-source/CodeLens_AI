@@ -45,6 +45,21 @@ public class Repository {
     @Column(name = "created_at")
     private Instant createdAt;
 
+    @Column(name = "default_branch")
+    private String defaultBranch;
+
+    @Column(name = "index_status", length = 20)
+    private String indexStatus = "NOT_INDEXED";
+
+    @Column(name = "indexed_sha", length = 40)
+    private String indexedSha;
+
+    @Column(name = "indexed_at")
+    private Instant indexedAt;
+
+    @Column(name = "indexed_chunks")
+    private Integer indexedChunks = 0;
+
     @PrePersist
     void onCreate() {
         this.createdAt = Instant.now();
@@ -108,6 +123,46 @@ public class Repository {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getDefaultBranch() {
+        return defaultBranch;
+    }
+
+    public void setDefaultBranch(String defaultBranch) {
+        this.defaultBranch = defaultBranch;
+    }
+
+    public String getIndexStatus() {
+        return indexStatus;
+    }
+
+    public void setIndexStatus(String indexStatus) {
+        this.indexStatus = indexStatus;
+    }
+
+    public String getIndexedSha() {
+        return indexedSha;
+    }
+
+    public void setIndexedSha(String indexedSha) {
+        this.indexedSha = indexedSha;
+    }
+
+    public Instant getIndexedAt() {
+        return indexedAt;
+    }
+
+    public void setIndexedAt(Instant indexedAt) {
+        this.indexedAt = indexedAt;
+    }
+
+    public Integer getIndexedChunks() {
+        return indexedChunks;
+    }
+
+    public void setIndexedChunks(Integer indexedChunks) {
+        this.indexedChunks = indexedChunks;
     }
 
     @Override

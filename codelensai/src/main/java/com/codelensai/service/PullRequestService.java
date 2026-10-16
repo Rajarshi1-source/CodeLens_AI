@@ -33,7 +33,10 @@ public class PullRequestService {
             String branchFrom,
             String branchTo,
             String headSha,
-            String htmlUrl) {
+            String htmlUrl,
+            int changedFiles,
+            int additions,
+            int deletions) {
     }
 
     /**
@@ -64,6 +67,9 @@ public class PullRequestService {
         pr.setBranchTo(in.branchTo());
         pr.setHeadSha(in.headSha());
         pr.setHtmlUrl(in.htmlUrl());
+        pr.setFilesChanged(in.changedFiles());
+        pr.setAdditions(in.additions());
+        pr.setDeletions(in.deletions());
         pr.setStatus(ReviewStatus.PENDING);
 
         return pullRequestRepository.save(pr).getId();
@@ -72,6 +78,18 @@ public class PullRequestService {
     @Transactional(readOnly = true)
     public List<PullRequest> listRecent() {
         return pullRequestRepository.findAllByOrderByUpdatedAtDesc();
+    }
+
+    /** PRs in repositories the user is a member of, newest first. */
+    @Transactional(readOnly = true)
+    public List<PullRequest> listAccessible(long userId) {
+        return pullRequestRepository.findAccessible(userId);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<PullRequest> findByRepoAndGithubPrId(String repoFullName, long githubPrId) {
+        return repositoryRepository.findByFullName(repoFullName)
+                .flatMap(r -> pullRequestRepository.findByRepoIdAndGithubPrId(r.getId(), githubPrId));
     }
 
     @Transactional(readOnly = true)

@@ -160,8 +160,9 @@ public class ReviewJobConsumer {
             return;
         }
 
+        boolean force = Boolean.parseBoolean(String.valueOf(body.get("force")));
         try {
-            if (sessionRepo.existsByPrIdAndHeadSha(prId, headSha)) {
+            if (!force && sessionRepo.existsByPrIdAndHeadSha(prId, headSha)) {
                 log.info("Skipping already-reviewed prId={} sha={}", prId, shortSha(headSha));
                 ack(record);
                 return;

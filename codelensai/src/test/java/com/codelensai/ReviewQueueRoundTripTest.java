@@ -9,13 +9,11 @@ import com.codelensai.repository.RepositoryRepository;
 import com.codelensai.repository.ReviewSessionRepository;
 import com.codelensai.service.ReviewQueueService;
 import com.codelensai.util.StreamKeys;
+import com.codelensai.support.CodelensIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.connection.stream.StreamInfo;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
@@ -39,9 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * the consumer group's {@code last-delivered-id} advancing (pending count alone would also read zero
  * <em>before</em> delivery, so it cannot distinguish "acked" from "never read").
  */
-@Testcontainers(disabledWithoutDocker = true)
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@CodelensIntegrationTest
 class ReviewQueueRoundTripTest {
 
     @Autowired

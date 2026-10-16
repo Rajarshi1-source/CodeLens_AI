@@ -1,0 +1,16 @@
+# Demo profile (SPRING_PROFILES_ACTIVE=demo): seeded data, password-less demo login, offline LLM and
+# embeddings, a network-free GitHub client, and the eval endpoint enabled. Never expose publicly —
+# DemoSafetyGuard refuses to start with real GitHub OAuth credentials or alongside the prod profile.
+codelens:
+  demo:
+    enabled: true
+    loopback-only: ${CODELENS_DEMO_LOOPBACK_ONLY:true}
+  llm:
+    provider: local
+    fallback-provider: local
+  embedding:
+    provider: hashing
+  internal:
+    enabled: true
+  presence:
+    ttl-seconds: ${CODELENS_PRESENCE_TTL_SECONDS:20}

@@ -38,7 +38,8 @@ public class LangfuseTracer {
 
     /** Best-effort: record one review as a Langfuse trace. Swallows all failures. */
     public void traceReview(long prId, String headSha, String model, String promptVersion,
-                            int tokenCount, int elapsedMs, int commentCount) {
+                            int tokenCount, int elapsedMs, int commentCount,
+                            java.math.BigDecimal costUsd, Map<String, Integer> servedBy) {
         if (restClient == null) {
             return;
         }
@@ -59,7 +60,9 @@ public class LangfuseTracer {
                                     "promptVersion", promptVersion == null ? "" : promptVersion,
                                     "tokens", tokenCount,
                                     "latencyMs", elapsedMs,
-                                    "comments", commentCount)));
+                                    "comments", commentCount,
+                                    "costUsd", costUsd == null ? 0 : costUsd,
+                                    "servedBy", servedBy == null ? Map.of() : servedBy)));
 
             restClient.post()
                     .uri("/api/public/ingestion")

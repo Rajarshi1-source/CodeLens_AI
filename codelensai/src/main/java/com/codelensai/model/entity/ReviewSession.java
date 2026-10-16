@@ -1,5 +1,7 @@
 package com.codelensai.model.entity;
 
+import java.util.List;
+import java.util.ArrayList;
 import com.codelensai.model.enums.ReviewStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -38,7 +40,7 @@ public class ReviewSession {
     @Column(length = 20)
     private ReviewStatus status = ReviewStatus.IN_PROGRESS;
 
-    @Column(name = "model_used", length = 50)
+    @Column(name = "model_used", length = 100)
     private String modelUsed;
 
     @Column(name = "prompt_version", length = 20)
@@ -65,6 +67,28 @@ public class ReviewSession {
 
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    @Column(name = "risk_score")
+    private Integer riskScore;
+
+    @Column(name = "risk_level", length = 10)
+    private String riskLevel;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "risk_reasons", columnDefinition = "jsonb")
+    private List<Map<String, Object>> riskReasons = new ArrayList<>();
+
+    @Column(name = "recommended_action", columnDefinition = "TEXT")
+    private String recommendedAction;
+
+    @Column(name = "input_tokens")
+    private Integer inputTokens = 0;
+
+    @Column(name = "output_tokens")
+    private Integer outputTokens = 0;
+
+    @Column(name = "failure_reason", length = 40)
+    private String failureReason;
 
     @PrePersist
     void onCreate() {
@@ -175,5 +199,60 @@ public class ReviewSession {
 
     public void setCompletedAt(Instant completedAt) {
         this.completedAt = completedAt;
+    }
+    public Integer getRiskScore() {
+        return riskScore;
+    }
+
+    public void setRiskScore(Integer riskScore) {
+        this.riskScore = riskScore;
+    }
+
+    public String getRiskLevel() {
+        return riskLevel;
+    }
+
+    public void setRiskLevel(String riskLevel) {
+        this.riskLevel = riskLevel;
+    }
+
+    public List<Map<String, Object>> getRiskReasons() {
+        return riskReasons;
+    }
+
+    public void setRiskReasons(List<Map<String, Object>> riskReasons) {
+        this.riskReasons = riskReasons;
+    }
+
+    public String getRecommendedAction() {
+        return recommendedAction;
+    }
+
+    public void setRecommendedAction(String recommendedAction) {
+        this.recommendedAction = recommendedAction;
+    }
+
+    public Integer getInputTokens() {
+        return inputTokens;
+    }
+
+    public void setInputTokens(Integer inputTokens) {
+        this.inputTokens = inputTokens;
+    }
+
+    public Integer getOutputTokens() {
+        return outputTokens;
+    }
+
+    public void setOutputTokens(Integer outputTokens) {
+        this.outputTokens = outputTokens;
+    }
+
+    public String getFailureReason() {
+        return failureReason;
+    }
+
+    public void setFailureReason(String failureReason) {
+        this.failureReason = failureReason;
     }
 }

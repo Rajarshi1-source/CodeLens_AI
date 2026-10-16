@@ -1,16 +1,15 @@
 package com.codelensai;
 
 import com.codelensai.model.dto.DiffChunk;
-import com.codelensai.model.dto.ReviewToken;
+import com.codelensai.model.dto.ReviewEvent;
+import com.codelensai.model.dto.ReviewPromptContext;
 import com.codelensai.service.AIReviewService;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.RetryRegistry;
+import com.codelensai.support.CodelensIntegrationTest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.List;
@@ -35,9 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * advice ran. A successful call is used rather than a forced failure because
  * {@code LlmReviewProvider} is a sealed interface and cannot be mocked.
  */
-@Testcontainers(disabledWithoutDocker = true)
-@Import(TestcontainersConfiguration.class)
-@SpringBootTest
+@CodelensIntegrationTest
 class ResilienceAspectsTest {
 
     @Autowired
@@ -52,7 +49,7 @@ class ResilienceAspectsTest {
         CircuitBreaker llm = circuitBreakerRegistry.circuitBreaker("llm");
         int before = llm.getMetrics().getNumberOfBufferedCalls();
 
-        List<ReviewToken> tokens = aiReviewService.stream(chunk()).collectList().block(Duration.ofSeconds(30));
+        List<ReviewEvent> tokens = aiReviewService.stream(ctx()).collectList().block(Duration.ofSeconds(30));
 
         assertNotNull(tokens, "stream() returned no result at all");
         int after = llm.getMetrics().getNumberOfBufferedCalls();
@@ -67,7 +64,7 @@ class ResilienceAspectsTest {
         var llm = retryRegistry.retry("llm");
         long before = llm.getMetrics().getNumberOfSuccessfulCallsWithoutRetryAttempt();
 
-        aiReviewService.stream(chunk()).collectList().block(Duration.ofSeconds(30));
+        aiReviewService.stream(ctx()).collectList().block(Duration.ofSeconds(30));
 
         long after = llm.getMetrics().getNumberOfSuccessfulCallsWithoutRetryAttempt();
         assertTrue(after > before,
@@ -83,7 +80,7 @@ class ResilienceAspectsTest {
         assertNotNull(retryRegistry.retry("github"));
     }
 
-    private static DiffChunk chunk() {
-        return new DiffChunk("Example.java", 1, "+    int answer = 42;", "java");
+    private static ReviewPromptContext ctx() {
+        return ReviewPromptContext.of(new DiffChunk("Example.java", 1, "+    int answer = 42;", "java"), "system");
     }
 }

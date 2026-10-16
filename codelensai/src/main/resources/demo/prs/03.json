@@ -1,0 +1,9 @@
+{
+  "number": 3,
+  "title": "Track stock reservations and expose availability",
+  "author": "demo-bob",
+  "branchFrom": "feature/stock-reservations",
+  "branchTo": "main",
+  "headSha": "3c8e2d0f5a4b6c7d8e9f0a1b2c3d4e5f6a7b8c92",
+  "reviewOnSeed": true
+}

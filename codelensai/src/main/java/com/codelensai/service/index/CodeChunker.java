@@ -73,7 +73,7 @@ public class CodeChunker {
             allDefs.add(u.name());
         }
         return new IndexChunk(path, language, u.kind() == CodeUnit.Kind.WINDOW ? null : u.name(), u.kind().name(),
-                start, cappedEnd, content, sha256(u.kind() + "|" + u.name() + "|" + content), refs, allDefs);
+                start, cappedEnd, content, sha256(u.kind() + "|" + u.name() + "|" + content), allDefs, refs);
     }
 
     static String slice(String[] lines, int startLine, int endLine) {

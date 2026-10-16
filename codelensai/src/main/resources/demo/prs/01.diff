@@ -1,0 +1,25 @@
+diff --git a/src/main/java/com/storefront/auth/LoginService.java b/src/main/java/com/storefront/auth/LoginService.java
+index 3b18e51..9f2c4a7 100644
+--- a/src/main/java/com/storefront/auth/LoginService.java
++++ b/src/main/java/com/storefront/auth/LoginService.java
+@@ -8,12 +8,19 @@ import java.sql.Statement;
+ public class LoginService {
+
++    private static final String API_KEY = "sk-live-4f9a8b7c6d5e4f3a2b1c";
++
+     private final Connection connection;
+
+     public LoginService(Connection connection) {
+         this.connection = connection;
+     }
+
+     public boolean login(String email, String password) throws SQLException {
+-        return false;
++        Statement statement = connection.createStatement();
++        String sql = "SELECT id FROM users WHERE email = '" + email + "' AND password_hash = crypt('" + password + "', password_hash)";
++        ResultSet rs = statement.executeQuery(sql);
++        boolean ok = rs.next();
++        audit(email, ok);
++        return ok;
+     }
+ }

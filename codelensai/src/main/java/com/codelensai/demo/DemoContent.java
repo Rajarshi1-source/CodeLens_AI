@@ -52,7 +52,7 @@ public class DemoContent {
                     if (at < 0 || !r.isReadable()) {
                         continue;
                     }
-                    files.put(url.substring(at + REPO_ROOT.length()), r.getContentAsString(StandardCharsets.UTF_8));
+                    files.put(url.substring(at + REPO_ROOT.length()), lf(r.getContentAsString(StandardCharsets.UTF_8)));
                 }
             } catch (IOException e) {
                 throw new IllegalStateException("cannot read demo repository", e);
@@ -74,13 +74,18 @@ public class DemoContent {
                 prs.add(new DemoPr(n.path("number").asInt(), n.path("title").asString(), n.path("author").asString(),
                         n.path("branchFrom").asString(null), n.path("branchTo").asString("main"),
                         n.path("headSha").asString(), n.path("reviewOnSeed").asBoolean(true),
-                        diff.getContentAsString(StandardCharsets.UTF_8)));
+                        lf(diff.getContentAsString(StandardCharsets.UTF_8))));
             }
         } catch (IOException e) {
             throw new IllegalStateException("cannot read demo pull requests", e);
         }
         prs.sort(Comparator.comparingInt(DemoPr::number));
         return prs;
+    }
+
+    /** Fixtures must stay LF even if a checkout converted them (hunk headers are parsed per line). */
+    private static String lf(String s) {
+        return s.replace("\r\n", "\n");
     }
 
     /** Stable fake git blob sha for a demo path. */

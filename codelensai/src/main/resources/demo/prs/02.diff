@@ -1,0 +1,19 @@
+diff --git a/src/main/java/com/storefront/payment/PriceCalculator.java b/src/main/java/com/storefront/payment/PriceCalculator.java
+index 7c2e1d0..b4f9a31 100644
+--- a/src/main/java/com/storefront/payment/PriceCalculator.java
++++ b/src/main/java/com/storefront/payment/PriceCalculator.java
+@@ -9,9 +9,13 @@ public class PriceCalculator {
+
+     private static final BigDecimal TAX_RATE = new BigDecimal("0.18");
+
+-    public BigDecimal calculateTotal(List<LineItem> items) {
++    public BigDecimal calculateTotal(List<LineItem> items, String discountCode) {
+         BigDecimal subtotal = items.stream()
+                 .map(item -> item.unitPrice().multiply(BigDecimal.valueOf(item.quantity())))
+                 .reduce(BigDecimal.ZERO, BigDecimal::add);
++        if (discountCode != null && discountCode.startsWith("SAVE")) {
++            BigDecimal percent = new BigDecimal(discountCode.substring(4)).movePointLeft(2);
++            subtotal = subtotal.subtract(subtotal.multiply(percent));
++        }
+         return subtotal.add(subtotal.multiply(TAX_RATE));
+     }

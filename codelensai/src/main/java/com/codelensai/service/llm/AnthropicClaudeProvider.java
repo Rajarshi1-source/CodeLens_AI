@@ -29,6 +29,7 @@ import tools.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
@@ -71,8 +72,17 @@ public final class AnthropicClaudeProvider implements LlmReviewProvider {
                     "ANTHROPIC_API_KEY not set — set it or use codelens.llm.provider=local"));
         }
         return Flux.create(sink -> {
-            Thread worker = Thread.ofVirtual().name("claude-stream").start(() -> run(ctx, sink));
-            sink.onDispose(worker::interrupt);
+            AtomicReference<StreamResponse<BetaRawMessageStreamEvent>> open = new AtomicReference<>();
+            Thread worker = Thread.ofVirtual().name("claude-stream").unstarted(() -> run(ctx, sink, open));
+            // One dispose hook only: FluxSink keeps the first onDispose and disposes any later one at once.
+            sink.onDispose(() -> {
+                StreamResponse<BetaRawMessageStreamEvent> r = open.get();
+                if (r != null) {
+                    r.close();
+                }
+                worker.interrupt();
+            });
+            worker.start();
         }, FluxSink.OverflowStrategy.BUFFER);
     }
 
@@ -90,12 +100,13 @@ public final class AnthropicClaudeProvider implements LlmReviewProvider {
         return b.build();
     }
 
-    private void run(ReviewPromptContext ctx, FluxSink<ReviewEvent> sink) {
+    private void run(ReviewPromptContext ctx, FluxSink<ReviewEvent> sink,
+                     AtomicReference<StreamResponse<BetaRawMessageStreamEvent>> open) {
         StreamingCommentParser parser = new StreamingCommentParser(objectMapper, ctx.chunk());
         BetaMessageAccumulator acc = BetaMessageAccumulator.create();
         int textBlocks = 0;
         try (StreamResponse<BetaRawMessageStreamEvent> response = client().beta().messages().createStreaming(reviewParams(ctx))) {
-            sink.onDispose(response::close);
+            open.set(response);
             for (BetaRawMessageStreamEvent event : (Iterable<BetaRawMessageStreamEvent>) response.stream()::iterator) {
                 if (sink.isCancelled()) {
                     return;

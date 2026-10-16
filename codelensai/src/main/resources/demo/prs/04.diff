@@ -1,0 +1,29 @@
+diff --git a/docs/checkout.md b/docs/checkout.md
+new file mode 100644
+index 0000000..a1c2e3f
+--- /dev/null
++++ b/docs/checkout.md
+@@ -0,0 +1,6 @@
++# Checkout totals
++
++`PriceCalculator.calculateTotal` sums `unitPrice * quantity` over the cart and
++adds 18% tax. Amounts are `BigDecimal`; the controller rounds to two decimals.
++
++See `PriceCalculatorTest` for the expected values.
+diff --git a/src/test/java/com/storefront/payment/PriceCalculatorTest.java b/src/test/java/com/storefront/payment/PriceCalculatorTest.java
+index 0d4b7a2..5e8c1f9 100644
+--- a/src/test/java/com/storefront/payment/PriceCalculatorTest.java
++++ b/src/test/java/com/storefront/payment/PriceCalculatorTest.java
+@@ -18,4 +18,12 @@ class PriceCalculatorTest {
+         LineItem item = new LineItem("SKU-1", new BigDecimal("100.00"), 1);
+         assertEquals(new BigDecimal("118.0000"), calc.calculateTotal(List.of(item)));
+     }
++
++    @Test
++    void sumsSeveralItems() {
++        LineItem a = new LineItem("SKU-1", new BigDecimal("10.00"), 2);
++        LineItem b = new LineItem("SKU-2", new BigDecimal("5.00"), 1);
++        BigDecimal total = calc.calculateTotal(List.of(a, b));
++        assertEquals(new BigDecimal("29.5000"), total);
++    }
+ }

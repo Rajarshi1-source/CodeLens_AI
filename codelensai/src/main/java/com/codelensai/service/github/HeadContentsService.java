@@ -48,6 +48,9 @@ public class HeadContentsService {
         }
         String fullName = repo.get().getFullName();
         String token = gitHubService.tokenFor(repo.get());
+        if (token == null || token.isBlank()) {
+            return FileContentProvider.none(); // only fetch with the owner's credentials
+        }
         Map<String, GitHubApiClient.RepoTree.Entry> blobs = api.getTree(fullName, pr.getHeadSha(), token)
                 .map(t -> t.entries().stream().filter(GitHubApiClient.RepoTree.Entry::isBlob)
                         .collect(Collectors.toMap(GitHubApiClient.RepoTree.Entry::path, Function.identity(), (a, b) -> a)))

@@ -8,6 +8,8 @@ codelens:
   llm:
     provider: local
     fallback-provider: local
+    local:
+      pace-ms: ${CODELENS_LOCAL_PACE_MS:700}   # findings arrive one by one, so live streaming is visible
   embedding:
     provider: hashing
   internal:

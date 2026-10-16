@@ -7,12 +7,14 @@ import com.codelensai.service.llm.LocalModelProvider;
 import com.codelensai.service.llm.OpenAiGpt5Provider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.web.reactive.function.client.WebClient;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -38,8 +40,8 @@ public class LlmConfig {
     }
 
     @Bean
-    public LocalModelProvider localModelProvider() {
-        return new LocalModelProvider();
+    public LocalModelProvider localModelProvider(@Value("${codelens.llm.local.pace-ms:0}") long paceMs) {
+        return new LocalModelProvider(Duration.ofMillis(paceMs));
     }
 
     @Bean

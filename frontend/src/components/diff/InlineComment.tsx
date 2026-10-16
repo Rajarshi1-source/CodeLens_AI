@@ -28,17 +28,17 @@ export function InlineComment({
       data-streaming={comment.isStreaming}
     >
       <div className="mb-1.5 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <SeverityBadge severity={comment.severity} />
           {comment.ruleKey && (
-            <span className="font-mono text-[11px] text-muted-foreground" title="Rule">
+            <span className="truncate font-mono text-[11px] text-muted-foreground" title="Rule">
               {comment.ruleKey}
             </span>
           )}
         </div>
         {showAnchor && (
-          <span className="font-mono text-xs text-muted-foreground">
-            {comment.file}:{comment.line}
+          <span className="shrink-0 font-mono text-xs text-muted-foreground" title={`${comment.file}:${comment.line}`}>
+            {comment.file.split('/').pop()}:{comment.line}
           </span>
         )}
       </div>

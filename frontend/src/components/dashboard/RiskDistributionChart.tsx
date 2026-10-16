@@ -21,6 +21,8 @@ export function RiskDistributionChart({ distribution }: { distribution: Record<s
           <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={92} fontSize={12} />
           <Tooltip
             cursor={{ fill: 'var(--muted)', opacity: 0.4 }}
+            itemStyle={{ color: 'var(--popover-foreground)' }}
+            labelStyle={{ color: 'var(--muted-foreground)' }}
             contentStyle={{
               background: 'var(--popover)',
               border: '1px solid var(--border)',

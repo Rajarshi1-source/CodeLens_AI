@@ -100,8 +100,8 @@ export function PRReview() {
         </TabsList>
 
         <TabsContent value="diff" className="mt-3 min-h-0 flex-1">
-          <div className="grid h-full grid-cols-1 gap-0 overflow-hidden rounded-lg border lg:grid-cols-[1fr_340px]">
-            <ScrollArea className="h-full">
+          <div className="grid h-full grid-cols-1 gap-0 overflow-hidden rounded-lg border lg:grid-cols-[minmax(0,1fr)_340px]">
+            <ScrollArea className="h-full min-w-0">
               {diff.isLoading ? (
                 <div className="space-y-2 p-4">
                   <Skeleton className="h-6" />

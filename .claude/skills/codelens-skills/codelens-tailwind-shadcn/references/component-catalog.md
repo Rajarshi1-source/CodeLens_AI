@@ -81,30 +81,46 @@ function Dashboard({ stats }: { stats: DashboardStats }) {
 
 ```tsx
 function PRReview({ prId }: { prId: PrId }) {
-  const { comments, status } = usePrReview(prId);   // REST + WS merge (see streaming ref)
+  const { comments, status } = usePrReview(prId);          // REST + WS merge (see streaming ref)
+  const summary = usePrSummary(prId);
+  const presence = usePresence(prId, user?.login);
   return (
-    <Tabs defaultValue="diff" className="h-full">
-      <div className="flex items-center justify-between border-b px-4 py-2">
-        <TabsList>
+    <div className="flex h-[calc(100vh-7rem)] flex-col">
+      <header className="flex flex-wrap items-center gap-3 pb-3">
+        {/* title … */}
+        <div className="ml-auto flex items-center gap-3">
+          <PresenceAvatars viewers={presence.others} />
+          <RiskBadge level={pr.riskLevel} score={pr.riskScore} />
+          <PRStatusBadge status={status ?? pr.status} />
+        </div>
+      </header>
+      <Tabs defaultValue="diff" className="flex min-h-0 flex-1 flex-col">
+        <TabsList className="self-start">
           <TabsTrigger value="diff">Diff</TabsTrigger>
           <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="comments">Comments ({comments.length})</TabsTrigger>
         </TabsList>
-        <PRStatusBadge status={status} />
-      </div>
-      <TabsContent value="diff" className="grid grid-cols-[1fr_360px] gap-0">
-        <ScrollArea className="h-[calc(100vh-8rem)]"><DiffViewer prId={prId} comments={comments} /></ScrollArea>
-        <ScrollArea className="h-[calc(100vh-8rem)] border-l">
-          <CommentRail comments={comments} />
-        </ScrollArea>
-      </TabsContent>
-      {/* summary, comments tabs… */}
-    </Tabs>
+        <TabsContent value="diff" className="mt-3 min-h-0 flex-1">
+          {/* minmax(0,1fr): a long code line must never push the rail out of view */}
+          <div className="grid h-full grid-cols-1 overflow-hidden rounded-lg border lg:grid-cols-[minmax(0,1fr)_340px]">
+            <ScrollArea className="h-full min-w-0">
+              <DiffViewer diff={diff} comments={comments} prId={prId} presence={presence.others} onFocus={presence.focus} />
+            </ScrollArea>
+            <ScrollArea className="hidden h-full border-l lg:block"><CommentRail comments={comments} prId={prId} /></ScrollArea>
+          </div>
+        </TabsContent>
+        <TabsContent value="summary" className="mt-3 grid gap-4 lg:grid-cols-2">
+          {summary.data ? <RiskPanel summary={summary.data} /> : <EmptyState title="Not reviewed yet" />}
+          {summary.data && <CostPanel summary={summary.data} />}
+        </TabsContent>
+        {/* comments tab: CommentRail */}
+      </Tabs>
+    </div>
   );
 }
 ```
 
-Give the diff the dominant column; comments dock in a fixed-width rail. Each `InlineComment` (from SKILL.md) fades in; multiple arrivals stagger.
+Give the diff the dominant column; findings render inline under their line inside `DiffFileTable`, and the rail lists them all. `ScrollArea`'s viewport forces its content wrapper to `display: block` so wide tables scroll inside their own `overflow-x-auto` container.
 
 ## 5. Forms (repo connect/settings)
 

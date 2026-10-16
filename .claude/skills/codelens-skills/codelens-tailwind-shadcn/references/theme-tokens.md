@@ -132,30 +132,47 @@ The `@theme inline` block is what makes `bg-card` / `text-muted-foreground` work
 ## 4. Severity tokens — the contract
 
 These three tokens are the single source of truth for severity color, consumed by `SeverityBadge`, diff gutters, the dashboard `SeverityChart`, and any filter UI. Rules:
-- Never introduce a fourth severity color or a one-off red — route through the tokens.
+- Never introduce a fourth severity color or a one-off red — route through the tokens. PR risk is not a severity: it uses the `--risk-*` family (§5b).
 - Always pair the color with a shape or label (dot + word) so severity survives color-blindness and grayscale printing.
 - Use the token at low opacity for fills (`/15`), full strength for text/borders, so badges stay legible.
 
 ## 5. Diff chrome tokens
 
-The diff renderer is locked to **`react-diff-viewer-continued`** (the master plan's choice). It accepts a `styles`/`variables` object; point every color at a CSS-var token. Because the tokens already flip under `.dark`, the same `var(--…)` values render correctly in both themes — you do NOT need a separate dark palette here, the variables resolve per active theme:
+The diff is rendered by the project's own `DiffFileTable` (ADR 0007 — inline comment rows need rows between diff
+lines, which a third-party viewer cannot give). Every color comes from a token, so dark mode needs nothing extra:
 
-```ts
-const diffStyles = {
-  variables: {
-    light: {
-      addedBackground: 'var(--diff-added)',
-      addedColor: 'var(--diff-added-text)',
-      removedBackground: 'var(--diff-removed)',
-      removedColor: 'var(--diff-removed-text)',
-      gutterBackground: 'var(--diff-gutter)',
-    },
-  },
-};
-// <ReactDiffViewer styles={diffStyles} useDarkTheme={false} ... />
-// Keep useDarkTheme={false} and let the CSS variables (which flip under .dark) do the theming —
-// one source of truth instead of maintaining the library's separate dark palette.
+```tsx
+const ROW_BG = { add: 'bg-[var(--diff-added)]', del: 'bg-[var(--diff-removed)]', context: '' };
+<td className="relative select-none border-r bg-[var(--diff-gutter)] px-2 text-right text-muted-foreground">{lineNo}</td>
+<td className={cn('whitespace-pre-wrap px-2 align-top [overflow-wrap:anywhere]', ROW_BG[row.kind])}>{row.text}</td>
+// comment row after the anchored line:
+<tr data-testid="comment-row"><td colSpan={cols} className="border-y bg-muted/40 px-3 py-2 font-sans">…</td></tr>
 ```
+
+## 5b. Risk tokens (G3)
+
+A separate family from severity, defined in both `:root` and `.dark` and mapped in `@theme inline`
+(`--color-risk-high` etc.), consumed only through `RISK_STYLES`:
+
+```css
+:root {
+  --risk-high: oklch(0.56 0.2 355);
+  --risk-medium: oklch(0.66 0.16 55);
+  --risk-low: oklch(0.6 0.11 230);
+}
+.dark {
+  --risk-high: oklch(0.7 0.18 355);
+  --risk-medium: oklch(0.76 0.14 60);
+  --risk-low: oklch(0.72 0.11 230);
+}
+progress.risk-bar { --risk-bar-color: var(--risk-low); }
+progress.risk-bar[data-risk='HIGH'] { --risk-bar-color: var(--risk-high); }
+progress.risk-bar[data-risk='MEDIUM'] { --risk-bar-color: var(--risk-medium); }
+progress.risk-bar::-webkit-progress-value, progress.risk-bar::-moz-progress-bar { background-color: var(--risk-bar-color); }
+```
+
+Hues are chosen away from the severity red/amber/green so a risk badge and a severity badge side by side never read as
+the same signal.
 
 ## 6. Referencing tokens in components
 

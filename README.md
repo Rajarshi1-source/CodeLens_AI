@@ -202,6 +202,9 @@ more than 20% over `baseline.json`.
 
 - `test-backend` — Maven `verify` with Testcontainers (Docker required, never skipped).
 - `test-frontend` — lint, Vitest, build.
+- `skills-consistency` — keeps the Claude skills in `.claude/skills/` in sync with the code: no retired guidance,
+  identical `build-and-run.md` copies, every controller endpoint documented, valid evals
+  (`scripts/check_skill_consistency.py`).
 - `review-quality-eval` — boots the backend (local provider, pgvector) and runs the eval + cost gate with
   the retrieval ablation.
 - `e2e` — boots the backend in the demo profile and runs the Playwright suite (report, traces and the

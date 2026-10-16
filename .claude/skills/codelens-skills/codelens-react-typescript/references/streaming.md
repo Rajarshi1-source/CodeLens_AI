@@ -1,159 +1,191 @@
 # CodeLens AI — React Streaming Reference
 
-The full real-time layer: the STOMP client lifecycle, the streaming-comment hook, reconnect + replay, and combining REST (already-persisted comments) with live WebSocket. Load when building or debugging the streaming UI. SKILL.md has the core hook; this adds the provider, reconnect, and merge logic.
+The full real-time layer: the STOMP client lifecycle, the session-aware stream state machine, reconnect + replay,
+combining REST (persisted comments) with live WebSocket, and presence. Load when building or debugging the streaming
+UI. Backend side: `codelens-spring-boot/references/presence-and-resume.md`.
 
 ## Contents
-1. STOMP client provider (single instance)
-2. The streaming hook (with replay guard)
-3. Reconnect + resumable replay
-4. Combining REST + WebSocket on PR open
-5. Performance: transitions and batching
-6. Common failure modes
+1. STOMP client provider (single instance, `connected` flag)
+2. The pure stream state machine (`lib/reviewStream.ts`)
+3. The hook: subscribe, buffer, replay, go live
+4. Combining REST + WebSocket (`usePrReview`, `mergeByKey`)
+5. Presence (`usePresence`)
+6. Performance
+7. Common failure modes
 
-## 1. STOMP client provider (single instance)
+## 1. STOMP client provider
 
-Create exactly one client for the app and share it via context. Never instantiate per component or per render.
+One client for the app, shared via context together with a live `connected` flag (subscriptions are made in
+effects that depend on it, so they are re-created after every reconnect). The SockJS handshake carries the session
+cookie, which is how the backend authenticates CONNECT.
 
 ```tsx
-import { Client } from '@stomp/stompjs';
-import SockJS from 'sockjs-client';
-import { createContext, useContext, useEffect, useRef } from 'react';
-
-const StompContext = createContext<Client | null>(null);
-
-export function StompProvider({ children }: { children: React.ReactNode }) {
+export function StompProvider({ children }: { children: ReactNode }) {
   const clientRef = useRef<Client | null>(null);
-
+  const [connected, setConnected] = useState(false);
   if (!clientRef.current) {
     clientRef.current = new Client({
-      webSocketFactory: () => new SockJS(import.meta.env.VITE_WS_URL),
-      reconnectDelay: 2000,            // stompjs handles backoff/retry
-      heartbeatIncoming: 10000,
-      heartbeatOutgoing: 10000,
+      webSocketFactory: () => new SockJS(import.meta.env.VITE_WS_URL ?? '/ws'),
+      reconnectDelay: 2000, heartbeatIncoming: 10000, heartbeatOutgoing: 10000,
     });
   }
-
   useEffect(() => {
     const client = clientRef.current!;
+    client.onConnect = () => setConnected(true);
+    client.onWebSocketClose = () => setConnected(false);
+    client.onDisconnect = () => setConnected(false);
     client.activate();
     return () => { void client.deactivate(); };
   }, []);
-
-  return <StompContext.Provider value={clientRef.current}>{children}</StompContext.Provider>;
-}
-
-export function useStompClient(): Client {
-  const client = useContext(StompContext);
-  if (!client) throw new Error('useStompClient must be used within StompProvider');
-  return client;
+  return <StompContext.Provider value={{ client: clientRef.current, connected }}>{children}</StompContext.Provider>;
 }
 ```
 
-## 2. The streaming hook (with replay guard)
+## 2. The pure stream state machine
 
 ```ts
-export function useReviewStream(prId: PrId) {
-  const client = useStompClient();
-  const [comments, setComments] = useState<StreamingComment[]>([]);
-  const [status, setStatus] = useState<ReviewStatus>('PENDING');
-  const lastSeq = useRef(0);
-  const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    if (!client.connected) return;   // re-run when connection flips (add client.connected to deps via a small subscription)
-
-    const reviewSub = client.subscribe(`/topic/pr/${prId}/review`, (message) => {
-      const token: ReviewStreamToken = JSON.parse(message.body);
-      if (token.seq <= lastSeq.current) return;     // drop replays / dupes
-      lastSeq.current = token.seq;
-
-      startTransition(() => {
-        setComments((prev) => appendToken(prev, token));
-      });
-    });
-
-    const statusSub = client.subscribe(`/topic/pr/${prId}/status`, (m) => {
-      const next = m.body as ReviewStatus;
-      setStatus(next);
-      if (next === 'COMPLETED') {
-        setComments((prev) => prev.map((c) => ({ ...c, isStreaming: false })));
-      }
-    });
-
-    return () => { reviewSub.unsubscribe(); statusSub.unsubscribe(); };
-  }, [client, prId]);
-
-  return { comments, status };
+export interface StreamState {
+  sessionId: number | null; lastSeq: number; status: ReviewStatus | null; reason: string | null;
+  comments: StreamingComment[];
 }
 
-function appendToken(prev: StreamingComment[], token: ReviewStreamToken): StreamingComment[] {
-  const i = prev.findIndex((c) => c.file === token.file && c.line === token.line);
-  if (i === -1) {
-    return [...prev, {
-      file: token.file, line: token.line, severity: token.severity,
-      text: token.text, isStreaming: true,
-    }];
+/** Align with `sessionId`: a NEWER session resets everything (re-review restarts seq at 1); older → ignore. */
+function forSession(state: StreamState, sessionId: number): StreamState | null {
+  if (state.sessionId === null || sessionId > state.sessionId) return { ...EMPTY_STREAM, sessionId };
+  if (sessionId < state.sessionId) return null;
+  return state;
+}
+
+export function applyMessage(state: StreamState, msg: ReviewTopicMessage): StreamState {
+  const s = forSession(state, msg.sessionId);
+  if (!s || !isNewSeq(s.lastSeq, msg.seq)) return s ?? state;          // dedup by seq
+  switch (msg.type) {
+    case 'token': return { ...s, lastSeq: msg.seq, status: s.status ?? 'IN_PROGRESS', comments: appendToken(s.comments, msg) };
+    case 'reset': return { ...s, lastSeq: msg.seq, comments: resetChunk(s.comments, msg.chunk) };
+    case 'error': return { ...s, lastSeq: msg.seq };
   }
+}
+
+/** Append by finding key (fingerprint), immutably. */
+export function appendToken(prev: StreamingComment[], t: ReviewStreamToken): StreamingComment[] {
+  const i = prev.findIndex((c) => c.key === t.key);
+  if (i === -1) return [...prev, { key: t.key, chunk: t.chunk, file: t.file, line: t.line, severity: t.severity,
+                                   text: t.text, confidence: t.confidence ?? undefined, ruleKey: t.ruleKey, isStreaming: true }];
   const next = [...prev];
-  next[i] = { ...next[i], text: next[i].text + token.text };   // immutable append
+  next[i] = { ...next[i], text: next[i].text + t.text };
   return next;
 }
+
+/** Replay batch first, then the live messages buffered while it was in flight, in seq order. */
+export function applyReplay(state: StreamState, batch: ReplayBatch, pending: ReviewTopicMessage[]): StreamState {
+  let s = forSession(state, batch.sessionId) ?? state;
+  if (s.sessionId !== batch.sessionId) return state;
+  for (const item of batch.items) s = applyMessage(s, item);
+  for (const item of [...pending].sort((a, b) => a.seq - b.seq)) s = applyMessage(s, item);
+  if (batch.status) s = applyStatus(s, { sessionId: batch.sessionId, status: batch.status, reason: batch.reason });
+  return s;
+}
 ```
 
-## 3. Reconnect + resumable replay
+`applyStatus` sets status/reason and clears `isStreaming` on terminal statuses. Everything here is unit-tested in
+`reviewStream.test.ts` (newer-session reset, older-session ignore, reset per chunk, replay + buffered dedup).
 
-The backend numbers comments per session with `seq`. On reconnect, tell the server the last `seq` you saw so it replays only what you missed, then resumes live push.
+## 3. The hook
 
 ```ts
-// On (re)subscribe, send the resume point. The backend reads this header and replays seq > N.
-const reviewSub = client.subscribe(
-  `/topic/pr/${prId}/review`,
-  handler,
-  { 'resume-from-seq': String(lastSeq.current) },   // STOMP subscription headers
-);
+export function useReviewStream(prId: PrId): StreamState {
+  const { client, connected } = useWebSocket();
+  const [state, setState] = useState<StreamState>(EMPTY_STREAM);
+  const stateRef = useRef<StreamState>(EMPTY_STREAM);          // latest state for headers/handlers
+  const [, startTransition] = useTransition();
+  const update = (fn: (s: StreamState) => StreamState) => {
+    stateRef.current = fn(stateRef.current);
+    const next = stateRef.current;
+    startTransition(() => setState(next));
+  };
+
+  useEffect(() => {
+    if (!connected) return;
+    let replaying = true;
+    const pending: ReviewTopicMessage[] = [];
+    const reviewSub = client.subscribe(`/topic/pr/${prId}/review`, (m) => {
+      const parsed = ReviewTopicMessageSchema.safeParse(JSON.parse(m.body));
+      if (!parsed.success) return;
+      if (replaying) pending.push(parsed.data); else update((s) => applyMessage(s, parsed.data));
+    });
+    const statusSub = client.subscribe(`/topic/pr/${prId}/status`, (m) => {
+      const parsed = ReviewStatusMessageSchema.safeParse(JSON.parse(m.body));
+      if (parsed.success) update((s) => applyStatus(s, parsed.data));
+    });
+    const { sessionId, lastSeq } = stateRef.current;
+    const replaySub = client.subscribe(`/app/pr/${prId}/replay`, (m) => {
+      replaying = false;
+      // validate with ReplayBatchSchema + ReviewTopicMessageSchema per item, then:
+      update((s) => applyReplay(s, batch, pending));
+      pending.length = 0;
+      replaySub.unsubscribe();                                   // the replay answers exactly once
+    }, { 'after-seq': String(lastSeq), 'session-id': String(sessionId ?? 0) });
+    return () => { reviewSub.unsubscribe(); statusSub.unsubscribe(); try { replaySub.unsubscribe(); } catch { /* done */ } };
+  }, [client, connected, prId]);
+
+  return state;
+}
 ```
 
-Because the hook keeps `lastSeq` in a ref (survives re-renders) and the append handler dedupes on `seq`, replayed comments merge cleanly without duplication and without wiping local state.
+Subscribing to the topics **before** requesting the replay, and buffering until it arrives, closes the gap where an
+event published between the two would otherwise be lost.
 
-## 4. Combining REST + WebSocket on PR open
-
-When you open a PR whose review is already in progress (or finished), seed from REST first, then let WebSocket carry the rest:
+## 4. Combining REST + WebSocket
 
 ```ts
 export function usePrReview(prId: PrId) {
-  // 1. Persisted comments (React Query) — instant render of what's already done.
-  const persisted = useQuery({
-    queryKey: ['comments', prId],
-    queryFn: () => prService.comments(prId),
-  });
+  const qc = useQueryClient();
+  const persisted = useQuery({ queryKey: ['comments', prId], queryFn: () => prService.comments(prId) });
+  const stream = useReviewStream(prId);
 
-  // 2. Live stream — remaining tokens.
-  const { comments: live, status } = useReviewStream(prId);
+  // When a live review finishes, refetch so persisted ids/feedback/apply state replace live comments.
+  const last = useRef(stream.status);
+  useEffect(() => {
+    const was = last.current; last.current = stream.status;
+    if (was === 'IN_PROGRESS' && stream.status && stream.status !== 'IN_PROGRESS') {
+      for (const key of [['comments', prId], ['pr', prId], ['summary', prId], ['diff', prId], ['prs']])
+        void qc.invalidateQueries({ queryKey: key });
+    }
+  }, [stream.status, prId, qc]);
 
-  // 3. Merge by (file, line), preferring live (it carries the freshest text).
-  const merged = useMemo(
-    () => mergeByAnchor(persisted.data ?? [], live),
-    [persisted.data, live],
+  const comments = useMemo(
+    () => mergeByKey(persisted.data ?? [], stream.comments, stream.status === 'IN_PROGRESS'),
+    [persisted.data, stream.comments, stream.status],
   );
-  return { comments: merged, status };
+  return { comments, status: stream.status, reason: stream.reason, sessionId: stream.sessionId, isLoading: persisted.isLoading };
 }
 ```
 
-`mergeByAnchor` keys on `(file, line)`: a live comment supersedes a persisted one with the same anchor (it's the same comment still streaming), otherwise both are kept.
+`mergeByKey`: while streaming, the live set is authoritative (old persisted comments belong to the previous run) but
+each live comment keeps the persisted `id`, `feedback`, `apply` and `codeSuggestion` of the same key; otherwise
+persisted comments win and live-only ones are appended.
 
-## 5. Performance: transitions and batching
+## 5. Presence
 
-- Wrap token appends in `startTransition` so a burst of tokens doesn't block typing/scrolling.
-- For very high token rates, debounce flushes (accumulate fragments for ~30–50ms, then apply) to cut render churn.
-- Virtualize long comment lists / large diffs if a PR has hundreds of comments.
-- Keep the diff viewer and the comment rail as separate components so a comment update doesn't re-render the whole diff.
+`usePresence(prId, selfLogin)` subscribes to `/topic/pr/{id}/presence` (Zod `PresenceSnapshotSchema`), publishes
+`JOIN` on connect, `HEARTBEAT` every 15 s, throttled `FOCUS` (250 ms) as the pointer moves over diff rows, and
+`LEAVE` on unmount/`beforeunload`. `collapseViewers` merges one row per STOMP session into one entry per login
+(`tabs` count); `others` excludes the current user. `DiffViewer` passes each file's focus map to `DiffFileTable`,
+which shows a gutter marker (`data-testid="focus-marker"`) with the viewers' avatars.
 
-## 6. Common failure modes
+## 6. Performance
+
+- All stream updates go through `startTransition`.
+- `DiffFileTable` is per file and memoizes its line → comments map; large files (> 1500 rows) start collapsed.
+- The comment rail and the diff are siblings, so a comment update does not re-render unrelated files' tables.
+
+## 7. Common failure modes
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Comments duplicate as they stream | missing `(file,line)` key or `seq` dedup | append by anchor; drop `seq <= lastSeq` |
-| UI freezes during fast streams | urgent state updates per token | wrap in `startTransition`, debounce |
-| Client on another pod gets nothing | backend Redis Pub/Sub relay not wired | server-side fix (see Spring resilience ref) |
-| State wiped on reconnect | local state reset instead of merged | keep `lastSeq` ref, merge replayed comments |
-| Stream never marks "done" | provider didn't emit completion / no COMPLETED status | flip `isStreaming` on `COMPLETED` status msg |
+| Re-review shows nothing live | `lastSeq` kept from the previous session | reset on a newer `sessionId` (`forSession`) |
+| Duplicates after reconnect | live events not buffered during replay | buffer until the replay reply, then `applyReplay` |
+| Two findings on one line merge into one | keyed by `(file, line)` | key by the fingerprint `key` |
+| Retry shows stale partial text | `reset` messages ignored | `resetChunk` on `type: 'reset'` |
+| Feedback/apply buttons missing after completion | queries not invalidated | invalidate comments/pr/summary/diff when status leaves `IN_PROGRESS` |
+| Client on another pod gets nothing | backend Redis Pub/Sub relay not wired | server-side fix |

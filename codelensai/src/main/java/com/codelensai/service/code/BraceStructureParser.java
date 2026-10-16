@@ -101,7 +101,11 @@ public class BraceStructureParser implements CodeStructureParser {
         return -1;
     }
 
-    /** Blank out string/char literals and comments so braces inside them are not counted. */
+    /**
+     * Blank out string/char literals and comments so braces inside them are not counted. The {@code ${...}}
+     * interpolations of JS/TS template literals are code, though (calls in them are real references), so they
+     * are kept; their braces are balanced, so brace matching is unaffected.
+     */
     static String[] stripStringsAndComments(String[] lines) {
         String[] out = new String[lines.length];
         boolean inBlock = false;
@@ -109,6 +113,7 @@ public class BraceStructureParser implements CodeStructureParser {
             String l = lines[li];
             StringBuilder sb = new StringBuilder(l.length());
             char quote = 0;
+            java.util.ArrayDeque<int[]> interpolations = new java.util.ArrayDeque<>(); // brace depth per open ${
             for (int i = 0; i < l.length(); i++) {
                 char c = l.charAt(i);
                 char next = i + 1 < l.length() ? l.charAt(i + 1) : 0;
@@ -122,6 +127,12 @@ public class BraceStructureParser implements CodeStructureParser {
                     if (c == '\\') {
                         i++;
                         sb.append(' ');
+                    } else if (quote == '`' && c == '$' && next == '{') {
+                        interpolations.push(new int[]{1});
+                        quote = 0;
+                        sb.append(" {");
+                        i++;
+                        continue;
                     } else if (c == quote) {
                         quote = 0;
                     }
@@ -136,6 +147,14 @@ public class BraceStructureParser implements CodeStructureParser {
                     quote = c;
                     sb.append(' ');
                 } else {
+                    if (!interpolations.isEmpty()) {
+                        if (c == '{') {
+                            interpolations.peek()[0]++;
+                        } else if (c == '}' && --interpolations.peek()[0] == 0) {
+                            interpolations.pop();
+                            quote = '`';   // back inside the template literal
+                        }
+                    }
                     sb.append(c);
                 }
             }

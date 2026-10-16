@@ -13,29 +13,6 @@ jobs:
     defaults:
       run:
         working-directory: codelensai
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: codelensai
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - name: Set up JDK 21
@@ -46,16 +23,23 @@ jobs:
           cache: maven
       # `verify`, not `package`: maven-failsafe-plugin binds to integration-test/verify,
       # both of which run AFTER package, so `package` would skip every *IT test.
+      # Integration tests start pgvector/pgvector:pg16 + redis:7 with Testcontainers (Docker is on the
+      # runner). CODELENS_REQUIRE_DOCKER=true turns "Docker missing" into a FAILURE instead of a skip,
+      # so CI can never go green without having run them.
       - name: Build and test
         env:
-          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/codelensai
-          SPRING_DATASOURCE_USERNAME: postgres
-          SPRING_DATASOURCE_PASSWORD: postgres
-          SPRING_REDIS_HOST: localhost
-          SPRING_REDIS_PORT: "6379"
+          CODELENS_REQUIRE_DOCKER: "true"
         run: |
           chmod +x mvnw
           ./mvnw clean verify -B
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            codelensai/target/surefire-reports
+            codelensai/target/failsafe-reports
 
   test-frontend:
     name: Frontend tests
@@ -86,7 +70,7 @@ jobs:
     needs: test-backend
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: codelensai
           POSTGRES_USER: postgres
@@ -124,6 +108,8 @@ jobs:
         working-directory: codelensai
         env:
           LLM_PROVIDER: local
+          CODELENS_INTERNAL_ENABLED: "true"
+          CODELENS_INTERNAL_TOKEN: ci-eval-token
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/codelensai
           SPRING_DATASOURCE_USERNAME: postgres
           SPRING_DATASOURCE_PASSWORD: postgres
@@ -145,10 +131,24 @@ jobs:
           python-version: "3.12"
       - name: Install eval deps
         run: pip install -r eval/requirements.txt
+      - name: Eval harness unit tests
+        working-directory: eval
+        run: python -m pytest -q test_scoring.py
+      # Quality floors + no-regression vs eval/baseline.json + the COST gate (mean tokens/review may grow
+      # at most 20%), and --ablate-retrieval proves repository context (G1) is what catches cross-file bugs.
       - name: Run review-quality eval gate
         env:
           CODELENS_BASE_URL: http://localhost:8080
-        run: python eval/run_eval.py --ci
+          CODELENS_INTERNAL_TOKEN: ci-eval-token
+        run: python eval/run_eval.py --ci --ablate-retrieval --json eval-results.json
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results
+          path: |
+            eval-results.json
+            codelensai/backend.log
 
   # Build + push Docker images to DockerHub on main. Inert until you opt in:
   #   - set repository Actions VARIABLE  ENABLE_DOCKER_PUSH = true

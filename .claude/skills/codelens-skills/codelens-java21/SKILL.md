@@ -21,8 +21,8 @@ This body is the working summary. Read the matching reference when you need the 
 The backend ingests GitHub webhooks, chunks diffs, calls an LLM per chunk **concurrently**, and streams structured comments back. The Java-language choices that matter most:
 
 1. **Virtual threads** — each PR may fan out into many concurrent LLM calls (one per diff chunk). Virtual threads make this cheap and readable instead of juggling thread pools.
-2. **Records** — every DTO (`ReviewToken`, `ReviewComment`, `DiffChunk`, `ReviewPromptContext`) is an immutable record. Never a mutable POJO.
-3. **Sealed interfaces** — the LLM provider adapter (`LlmReviewProvider`) and its implementations are modeled as a sealed hierarchy so the compiler enforces exhaustive handling.
+2. **Records** — every DTO (`ReviewComment`, `DiffChunk`, `ReviewPromptContext`, `ReviewStreamToken`, the `ReviewEvent` variants) is an immutable record. Never a mutable POJO.
+3. **Sealed interfaces** — the LLM provider adapter (`LlmReviewProvider`), what it streams (`ReviewEvent`), the embedding adapter (`EmbeddingProvider`) and the STOMP message union (`ReviewTopicMessage`) are sealed hierarchies so the compiler enforces exhaustive handling.
 4. **Pattern matching** — severity routing and provider dispatch use switch pattern matching, not if/else chains.
 
 ## Core conventions (apply on every file)
@@ -39,17 +39,21 @@ The backend ingests GitHub webhooks, chunks diffs, calls an LLM per chunk **conc
 This is the headline use in CodeLens. When reviewing a PR, chunks are independent and I/O-bound (LLM calls), so each runs on its own virtual thread:
 
 ```java
-List<DiffChunk> chunks = diffChunker.chunk(diff, MAX_TOKENS_PER_CHUNK);
+List<DiffChunk> chunks = diffChunker.chunk(diff, maxTokensPerChunk, headContents);   // structure-aware (G4)
+List<RetrievedContext> contexts = retrieval.retrieveAll(source, chunks, changedPaths); // G1, one embed batch
 
 try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    List<Future<ChunkReview>> futures = chunks.stream()
-        .map(chunk -> executor.submit(() -> aiReviewService.review(chunk)))
-        .toList();
-
-    for (var future : futures) {
-        ChunkReview review = future.get();   // joins; one slow chunk doesn't block others' progress
-        webSocketNotifier.publish(prId, review);
+    List<Future<ChunkOutcome>> futures = new ArrayList<>();
+    for (int i = 0; i < chunks.size(); i++) {
+        var ctx = new ReviewPromptContext(chunks.get(i), contexts.get(i).callers(), contexts.get(i).tests(),
+                                          prompts.reviewPrompt(), contexts.get(i).related());
+        var collector = new ChunkCollector(i, chunks.get(i), live);           // pushes findings live as they arrive
+        futures.add(executor.submit(() -> {
+            aiReviewService.stream(ctx).doOnNext(collector::on).blockLast(); // blocking is fine on a virtual thread
+            return collector.outcome();
+        }));
     }
+    for (var f : futures) outcomes.add(getOrFailed(f));   // isolate failures: one bad chunk keeps the others
 } // executor.close() waits for all tasks
 ```
 
@@ -61,13 +65,13 @@ For the repo-aware retrieval differentiator, gather the diff, the callers, and t
 
 ```java
 try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-    Future<String> diff       = executor.submit(() -> gitHubService.fetchDiff(prId));
-    Future<List<String>> callers = executor.submit(() -> contextRetriever.callersOf(prId));
-    Future<List<String>> tests   = executor.submit(() -> contextRetriever.testsFor(prId));
+    Future<List<String>> callers = executor.submit(() -> source.callers(symbols, changedPaths));
+    Future<List<String>> tests   = executor.submit(() -> source.tests(symbols, changedPaths));
+    Future<List<String>> related = executor.submit(() -> source.nearest(embedding, changedPaths, topK));
     try {
-        return new ReviewPromptContext(diff.get(), callers.get(), tests.get());
+        return new ReviewPromptContext(chunk, callers.get(), tests.get(), systemPrompt, related.get());
     } catch (ExecutionException e) {
-        diff.cancel(true); callers.cancel(true); tests.cancel(true);   // fail together
+        callers.cancel(true); tests.cancel(true); related.cancel(true);   // fail together
         throw new ContextGatheringException(e.getCause());
     }
 }
@@ -77,7 +81,7 @@ This is the opposite policy from the per-chunk review loop, where one bad chunk 
 
 ## Records for all DTOs
 
-Every DTO is an immutable record with invariants validated in the compact constructor. The full catalog (`ReviewStreamToken`, `ReviewComment`, `DiffChunk`, `ReviewPromptContext`, entity→DTO mappings) is in `references/domain-types.md`. Pattern:
+Every DTO is an immutable record with invariants validated in the compact constructor. The full catalog (`ReviewEvent`, `ReviewStreamToken`, `ReviewComment`, `DiffChunk`, `ReviewPromptContext`, entity→DTO mappings) is in `references/domain-types.md`. Pattern:
 
 ```java
 public record ReviewComment(String filePath, int lineNumber, Severity severity,
@@ -98,11 +102,58 @@ The model must never be hardcoded. Model the provider as a sealed hierarchy so a
 ```java
 public sealed interface LlmReviewProvider
         permits OpenAiGpt5Provider, AnthropicClaudeProvider, LocalModelProvider {
-    Flux<ReviewToken> streamReview(ReviewPromptContext ctx);   // structured tokens per chunk
+    Flux<ReviewEvent> streamReview(ReviewPromptContext ctx);   // Findings as each completes, then Usage
+    Mono<SummaryResult> summarize(SummaryContext ctx);
     String providerId();
+    String reviewModel();
+}
+
+public sealed interface ReviewEvent {
+    record Reset(String reason) implements ReviewEvent {}     // a retry/fallback restarted this chunk
+    record Finding(String file, int line, Severity severity, String text,
+                   String codeSuggestion, double confidence, String ruleKey) implements ReviewEvent {}
+    record Usage(String providerId, String model, long inputTokens, long outputTokens,
+                 boolean estimated) implements ReviewEvent {}
 }
 
 public enum Severity { CRITICAL, WARNING, SUGGESTION }
+```
+
+Consume events with an exhaustive switch — **no `default`**, so a new variant is a compile error everywhere:
+
+```java
+switch (event) {
+    case ReviewEvent.Reset r   -> findings.clear();
+    case ReviewEvent.Finding f -> findings.putIfAbsent(fingerprint(f), toComment(f));
+    case ReviewEvent.Usage u   -> usages.add(u);
+}
+```
+
+## Bridging a blocking SDK stream into a Flux (virtual thread)
+
+Vendor SDKs (e.g. the Anthropic Java SDK's `createStreaming`) block while iterating events. Run the loop on a
+virtual thread and bridge it with `Flux.create`; register **exactly one** `onDispose` hook (a `FluxSink` keeps the
+first and immediately disposes any later one) that closes the HTTP stream and interrupts the worker:
+
+```java
+return Flux.create(sink -> {
+    AtomicReference<StreamResponse<Event>> open = new AtomicReference<>();
+    Thread worker = Thread.ofVirtual().name("claude-stream").unstarted(() -> {
+        try (StreamResponse<Event> response = client.beta().messages().createStreaming(params)) {
+            open.set(response);
+            for (Event e : (Iterable<Event>) response.stream()::iterator) {
+                if (sink.isCancelled()) return;
+                parser.feed(textOf(e)).forEach(sink::next);   // emit each Finding as soon as it closes
+            }
+            sink.next(usageOf(accumulated));
+            sink.complete();
+        } catch (Exception ex) {
+            if (!sink.isCancelled()) sink.error(ex);
+        }
+    });
+    sink.onDispose(() -> { var r = open.get(); if (r != null) r.close(); worker.interrupt(); });
+    worker.start();
+}, FluxSink.OverflowStrategy.BUFFER);
 ```
 
 ## Pattern matching for dispatch and severity
@@ -110,11 +161,11 @@ public enum Severity { CRITICAL, WARNING, SUGGESTION }
 Replace if/else and `instanceof` casts with switch pattern matching:
 
 ```java
-String label(ReviewToken t) {
-    return switch (t.severity()) {
-        case CRITICAL   -> "🔴 " + t.text();
-        case WARNING    -> "🟡 " + t.text();
-        case SUGGESTION -> "🟢 " + t.text();
+String label(ReviewEvent.Finding f) {
+    return switch (f.severity()) {
+        case CRITICAL   -> "🔴 " + f.text();
+        case WARNING    -> "🟡 " + f.text();
+        case SUGGESTION -> "🟢 " + f.text();
     };  // exhaustive over the enum — no default needed
 }
 ```
@@ -135,13 +186,14 @@ int priorityScore(Object event) {
 
 - Unit tests: `@ExtendWith(MockitoExtension.class)`, mock repositories and the `LlmReviewProvider`.
 - **Naming decides whether your test ever runs.** Surefire matches `*Test` / `Test*` / `*Tests` only. A class named `*IT` runs under `maven-failsafe-plugin` in the `integration-test`/`verify` phases, so it executes on `./mvnw verify` but is **silently skipped by `./mvnw package`**. Either name it `*Test`, or name it `*IT` and make sure the build command is `verify`.
-- Integration tests that touch Postgres/Redis: **Testcontainers**, never an embedded fake — CodeLens relies on Postgres-specific features (JSONB, tsvector, `UNIQUE(pr_id, head_sha)`). Spin up `postgres:16-alpine` and wire it via `@DynamicPropertySource`; a worthwhile test asserts the unique constraint rejects a duplicate `(pr_id, head_sha)` with `DataIntegrityViolationException` (the idempotency backstop).
+- Integration tests that touch Postgres/Redis: **Testcontainers**, never an embedded fake — CodeLens relies on Postgres-specific features (JSONB, tsvector, pgvector, `UNIQUE(pr_id, head_sha)`). Use `DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres")` and `redis:7` (`TestcontainersConfiguration`), and annotate Spring tests with `@CodelensIntegrationTest`: its `RequireDockerExtension` aborts without Docker locally, **fails** when `CODELENS_REQUIRE_DOCKER=true` (CI), and runs against existing infra when `CODELENS_IT_EXTERNAL_INFRA=true`. A worthwhile test asserts the unique constraint rejects a duplicate `(pr_id, head_sha)` with `DataIntegrityViolationException` (the idempotency backstop).
+- Provider tests run against a JDK `HttpServer` serving canned SSE (`FakeSseServer`) — never the real API in CI.
 
 ## MUST DO
 - Use virtual threads for concurrent LLM/diff-chunk calls; size nothing manually.
 - Model every DTO as a record; validate invariants in compact constructors.
 - Keep the LLM provider behind the sealed `LlmReviewProvider` interface — never call a vendor SDK directly from a service.
-- Use exhaustive switch pattern matching over `Severity` and event types.
+- Use exhaustive switch pattern matching over `Severity`, `ReviewEvent` and other sealed types — no `default` branch.
 - Use TestContainers for any test touching Postgres or Redis.
 
 ## MUST NOT DO
@@ -149,6 +201,7 @@ int priorityScore(Object event) {
 - Create fixed-size thread pools for LLM fan-out (defeats the point of virtual threads).
 - Use `StructuredTaskScope` or any other preview API — this project builds without `--enable-preview`. For "fail together," use the virtual-thread executor with explicit `cancel(true)`.
 - Mutate DTOs or pass mutable collections across layers.
+- Register more than one `onDispose` on a `FluxSink`, or let a vendor SDK retry on its own (Resilience4j owns retries).
 
 ## Build configuration
 
@@ -217,3 +270,5 @@ Build and run with the generated wrapper: `./mvnw clean package` and `./mvnw spr
 - **Blocking call pins a carrier thread**: ensure JDBC/HTTP clients used inside virtual threads don't hold `synchronized` monitors across I/O; prefer `ReentrantLock`. Run load tests with `-Djdk.tracePinnedThreads=short` to surface pinning.
 - **"Fail together" context gather leaks a running task**: make sure every branch cancels the other futures (`cancel(true)`) before throwing.
 - **`Flux` from the provider never completes**: confirm the adapter closes the SSE stream and emits `onComplete` so the WebSocket relay can mark the comment done.
+- **Stream closes immediately ("message_stop not yet received")**: a second `sink.onDispose(...)` was registered and disposed at once — combine cleanup into one hook.
+- **Postgres rejects `TimeZone=Asia/Calcutta`**: run tests and the app with `-Duser.timezone=UTC` (set in the pom).

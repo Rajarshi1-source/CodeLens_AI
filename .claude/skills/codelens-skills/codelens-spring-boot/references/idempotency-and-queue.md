@@ -91,7 +91,10 @@ public void parseAndEnqueue(String rawBody) {
 }
 ```
 
-`head_sha` rides along so the *effect* downstream is idempotent.
+`head_sha` rides along so the *effect* downstream is idempotent. `ReviewQueueService.enqueue(prId, headSha, force)`
+is the single producer: webhooks enqueue with `force=false`; the Re-review button (`POST /api/prs/{id}/re-review`)
+enqueues with `force=true`. A `closed` action with `merged=true` enqueues an `index-jobs` record for the PR's changed
+paths on the base branch instead (G1 index refresh).
 
 ## 5. Consumer — consumer group, ack-after-success, DLQ
 
@@ -119,7 +122,8 @@ public class ReviewJobConsumer {
             long prId = Long.parseLong(record.getValue().get("prId").toString());
             String headSha = record.getValue().get("headSha").toString();
             try {
-                if (sessionRepo.existsByPrIdAndHeadSha(prId, headSha)) { ack(record); continue; }
+                boolean force = "true".equals(String.valueOf(record.getValue().get("force")));
+                if (!force && sessionRepo.existsByPrIdAndHeadSha(prId, headSha)) { ack(record); continue; }
                 reviewService.processReview(prId, headSha);
                 ack(record);                                  // ack ONLY after success
             } catch (Exception e) {
@@ -180,10 +184,15 @@ Dashboard reads hit the Postgres read replica (eventual, ms lag). The user who j
 
 ## 8. Resumable WebSocket stream
 
-Each review session numbers its comments with a monotonic `seq`. On reconnect:
+Each review session numbers its events with a monotonic `seq` (shared by all chunks; restarts at 1 for a new
+session, so clients key their state on `sessionId` too). Every event is published for live fan-out **and** appended
+to the Redis Stream `review:tokens:{prId}`. On (re)connect:
 
-1. Client sends its last-seen `seq` for the PR.
-2. Server replays comments with `seq >` that value from the Redis Stream (or Postgres).
-3. Server resumes live push.
+1. The client subscribes to the review/status topics and buffers live messages.
+2. It subscribes to `/app/pr/{id}/replay` with headers `session-id` and `after-seq`; the server answers once with
+   the current session's events after that `seq` (all of them if the session changed) plus the status.
+3. The client applies the batch, then the buffered live messages in `seq` order, dropping duplicates.
 
-This turns the AP live stream into a guarantee that the reviewer *eventually* sees every comment despite a dropped connection or a pod restart.
+Persisted comments (REST) take over once the session completes. This turns the AP live stream into a guarantee that
+the reviewer *eventually* sees every finding despite a dropped connection or a pod restart. Full details:
+`presence-and-resume.md`.

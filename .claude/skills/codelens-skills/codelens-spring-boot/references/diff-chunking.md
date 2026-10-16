@@ -7,7 +7,7 @@ How `DiffChunkerService` splits a PR diff into LLM-reviewable segments. Load whe
 2. The chunking contract
 3. Level 1 — split by file
 4. Level 2 — split by hunk / size
-5. Level 3 — AST-aware (tree-sitter, G4)
+5. Level 3 — structure-aware (G4, shipped)
 6. Files to skip
 7. Token estimation
 8. Line-number fidelity (critical)
@@ -65,17 +65,29 @@ private List<DiffChunk> chunkFile(FileDiff file, int maxTokens) {
 }
 ```
 
-## 5. Level 3 — AST-aware (tree-sitter, G4 differentiator)
+## 5. Level 3 — structure-aware (G4, shipped)
 
-Hunk-based splitting can still cut a function in half if a single hunk is huge. AST-aware chunking parses the changed file with tree-sitter, finds the enclosing function/class node for each changed range, and emits one chunk per logical unit — so a function is always whole.
+Hunk-based splitting can still cut a function in half. `DiffChunkerService.chunk(diff, maxTokens, FileContentProvider)`
+groups hunks by their **enclosing code unit** so a function is never split across LLM calls; the 2-argument
+overload (no file contents) keeps Level 1+2 behaviour.
 
-Approach:
-1. Run tree-sitter for the file's `language` (grammars per language give multi-language support).
-2. For each changed line range, walk up to the nearest function/method/class node.
-3. Emit that node's full span as the chunk (deduplicate when several changes share an enclosing node).
-4. If a single node still exceeds `maxTokens`, fall back to Level 2 within that node.
+- `FileContentProvider` supplies the changed file's head content: `HeadContentsService` (Redis-cached, size-capped)
+  in production, `FileContentProvider.of(map)` for the eval endpoint and the demo.
+- `CodeStructureParsers` picks a pure-Java `CodeStructureParser` by language (no native libraries, no tree-sitter):
+  - `JavaParserStructureParser` — JavaParser at the Java 21 language level: exact class/method/constructor ranges
+    and the names each body calls; broken Java falls back to the brace parser.
+  - `BraceStructureParser` — JS/TS/Go/C#/Kotlin/Rust/Java fallback: declaration-head patterns + brace matching on a
+    copy with strings and comments blanked (template-literal `${...}` interpolations are kept as code).
+  - `IndentStructureParser` — Python: `def`/`class` heads + indentation.
+  - Anything else: 80-line windows (10-line overlap).
+- `CodeUnit(name, kind, startLine, endLine, signature, calledNames, declaredNames)` — the same units feed the G1
+  index (`CodeChunker`) so the symbols a chunk changes can be looked up as callers' references.
+- Each `DiffChunk` carries `symbols` (the enclosing units' names); retrieval uses them to find callers and tests.
+- A unit larger than `maxTokens` falls back to Level 2 inside it (counter `chunker.oversize_units`).
 
-This is a stretch goal — Level 1+2 is a solid MVP. The interview point: "a function is never split across LLM calls, so the model always sees complete logic."
+The interview point: "a function is never split across LLM calls, so the model always sees complete logic — and
+the same parse tells retrieval which callers to fetch." Tree-sitter remains future work for exact ranges in every
+language.
 
 ## 6. Files to skip
 

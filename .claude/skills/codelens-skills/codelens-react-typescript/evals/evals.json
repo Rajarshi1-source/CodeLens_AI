@@ -1,17 +1,37 @@
 {
   "skill_name": "codelens-react-typescript",
-  "notes": "Prompts mix triggering tests (casual CodeLens frontend phrasings) and output-quality tests (streaming hook with seq dedup + transitions, shared STOMP client, branded IDs + discriminated unions, REST+WS merge, Zod boundary validation). Assertions are objectively checkable.",
+  "notes": "Prompts mix triggering tests (casual CodeLens frontend phrasings) and output-quality tests (streaming hook with seq dedup + transitions, shared STOMP client, branded IDs + discriminated unions, REST+WS merge, Zod boundary validation). Assertions are objectively checkable. Updated for the session-aware stream, inline diff anchoring, optimistic feedback and Playwright E2E.",
   "evals": [
     {
       "id": 1,
       "prompt": "Build the React hook for CodeLens that subscribes to a PR's review topic and shows AI comments appearing word-by-word as they stream in.",
-      "expected_output": "A useReviewStream(prId) hook subscribing over STOMP, accumulating tokens keyed on (file,line) with immutable appends, dropping tokens whose seq <= lastSeq (a useRef), wrapping state updates in startTransition, and cleaning up the subscription on unmount.",
+      "expected_output": "A hook built on a pure, session-aware state machine: subscribe to review + status topics, buffer live messages until the /app/pr/{id}/replay reply, apply replay then buffered messages; reset state on a newer sessionId; dedup by seq; append fragments by the finding key immutably inside startTransition; unsubscribe on cleanup.",
       "files": [],
       "assertions": [
-        { "text": "Keys streaming comments on (file, line) and appends fragments immutably", "type": "behavioral" },
-        { "text": "Drops out-of-order/replayed tokens using a seq compared against a ref", "type": "behavioral" },
-        { "text": "Wraps high-frequency token updates in startTransition", "type": "contains" },
-        { "text": "Unsubscribes in the effect cleanup", "type": "behavioral" }
+        {
+          "text": "Keys streaming comments on the finding key/fingerprint (not (file, line)) and appends fragments immutably",
+          "type": "behavioral"
+        },
+        {
+          "text": "Drops replayed/duplicate messages by seq and resets lastSeq when a newer sessionId arrives",
+          "type": "behavioral"
+        },
+        {
+          "text": "Requests a replay of missed events after (re)connecting and buffers live messages until it arrives",
+          "type": "behavioral"
+        },
+        {
+          "text": "Wraps high-frequency updates in startTransition",
+          "type": "behavioral"
+        },
+        {
+          "text": "Validates each STOMP message with Zod before applying it",
+          "type": "behavioral"
+        },
+        {
+          "text": "Unsubscribes in the effect cleanup",
+          "type": "behavioral"
+        }
       ]
     },
     {
@@ -20,9 +40,22 @@
       "expected_output": "One Client instance held in a provider via useRef (or a module singleton), activated once with reconnectDelay/heartbeats, shared via context — never recreated per render.",
       "files": [],
       "assertions": [
-        { "text": "Creates exactly one STOMP client and shares it (context or ref), not one per component/render", "type": "behavioral" },
-        { "text": "Configures reconnectDelay and heartbeats", "type": "contains" },
-        { "text": "Uses SockJS as the webSocketFactory", "type": "contains" }
+        {
+          "text": "Creates exactly one STOMP client and shares it (context or ref), not one per component/render",
+          "type": "behavioral"
+        },
+        {
+          "text": "Configures reconnectDelay and heartbeats",
+          "type": "contains"
+        },
+        {
+          "text": "Uses SockJS as the webSocketFactory",
+          "type": "contains"
+        },
+        {
+          "text": "Exposes a connected flag so subscriptions are re-created after reconnects",
+          "type": "behavioral"
+        }
       ]
     },
     {
@@ -31,20 +64,42 @@
       "expected_output": "Branded string types (PrId, RepoId), a ReviewStatus string-literal union, and exhaustive handling via a never-guard.",
       "files": [],
       "assertions": [
-        { "text": "Defines branded types for PrId and RepoId", "type": "behavioral" },
-        { "text": "Models ReviewStatus as a discriminated/string-literal union", "type": "behavioral" },
-        { "text": "Handles the union exhaustively with an assertNever / never guard", "type": "behavioral" },
-        { "text": "Does NOT use any to bypass type checking", "type": "absent" }
+        {
+          "text": "Defines branded types for PrId and RepoId",
+          "type": "behavioral"
+        },
+        {
+          "text": "Models ReviewStatus as a discriminated/string-literal union",
+          "type": "behavioral"
+        },
+        {
+          "text": "Handles the union exhaustively with an assertNever / never guard",
+          "type": "behavioral"
+        },
+        {
+          "text": "Does NOT use any to bypass type checking",
+          "type": "absent"
+        }
       ]
     },
     {
       "id": 4,
       "prompt": "When a CodeLens user opens a PR whose review is already in progress, show the comments that were already saved and keep streaming the remaining ones without duplicates.",
-      "expected_output": "A pattern that fetches persisted comments via React Query, subscribes to live tokens via the streaming hook, and merges them by (file,line) so a live comment supersedes the persisted one with the same anchor.",
+      "expected_output": "React Query for persisted comments plus the live stream, merged by finding key: while streaming the live set wins but keeps persisted ids/feedback/apply state; when the status leaves IN_PROGRESS the comments/pr/summary/diff queries are invalidated.",
       "files": [],
       "assertions": [
-        { "text": "Fetches persisted comments via React Query (server cache) separately from the live WebSocket stream", "type": "behavioral" },
-        { "text": "Merges persisted and live comments by their (file, line) anchor without duplication", "type": "behavioral" }
+        {
+          "text": "Fetches persisted comments via React Query (server cache) separately from the WebSocket stream",
+          "type": "behavioral"
+        },
+        {
+          "text": "Merges persisted and live comments by the finding key without duplicating",
+          "type": "behavioral"
+        },
+        {
+          "text": "Invalidates the comments (and related) queries when the live review completes",
+          "type": "behavioral"
+        }
       ]
     },
     {
@@ -53,8 +108,82 @@
       "expected_output": "A Zod schema parsed in the service layer (schema.parse), with the TypeScript type inferred from the schema via z.infer.",
       "files": [],
       "assertions": [
-        { "text": "Defines a Zod schema and calls parse (or safeParse) on the response", "type": "behavioral" },
-        { "text": "Infers the TS type from the schema via z.infer rather than hand-writing a duplicate type", "type": "behavioral" }
+        {
+          "text": "Defines a Zod schema and calls parse (or safeParse) on the response",
+          "type": "behavioral"
+        },
+        {
+          "text": "Infers the TS type from the schema via z.infer rather than hand-writing a duplicate type",
+          "type": "behavioral"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Show CodeLens AI findings directly under the diff line they refer to, in split and unified mode, and still show something useful when we have no diff.",
+      "expected_output": "A parser producing hunks with absolute old/new line numbers from @@ headers; a table renderer inserting a full-width comment row after the anchored new-file line; findings not in the diff listed separately; a findings-list fallback when the diff is empty; no third-party diff viewer.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Computes absolute line numbers from the hunk headers rather than numbering from 1",
+          "type": "behavioral"
+        },
+        {
+          "text": "Renders each finding in a row immediately after its anchored line",
+          "type": "behavioral"
+        },
+        {
+          "text": "Lists findings whose line is not in the diff separately instead of dropping them",
+          "type": "behavioral"
+        },
+        {
+          "text": "Falls back to a findings list grouped by file when no diff is available",
+          "type": "behavioral"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "prompt": "Add thumbs up/down to CodeLens comments so the count updates instantly, and roll back if the server rejects it.",
+      "expected_output": "A useMutation with onMutate snapshot + optimistic patch of the comments cache (clicking the active vote clears it), onSuccess writing server counts, onError restoring the snapshot; toggle buttons with aria-pressed; hidden while the comment has no persisted id.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Updates the React Query cache optimistically in onMutate and restores the snapshot on error",
+          "type": "behavioral"
+        },
+        {
+          "text": "Exposes the vote state with aria-pressed on toggle buttons",
+          "type": "behavioral"
+        },
+        {
+          "text": "Does not offer voting on comments that are still streaming / have no id",
+          "type": "behavioral"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "prompt": "Write an end-to-end test that two CodeLens reviewers see each other on the same PR.",
+      "expected_output": "A Playwright test against the demo-profile backend using saved storage states for Alice and Bob in two browser contexts, opening the PR by number, asserting each sees the other's presence avatar (not their own), a focus marker after hovering a line, and the avatar disappearing after the other context closes.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "Uses two separate browser contexts with distinct authenticated storage states",
+          "type": "behavioral"
+        },
+        {
+          "text": "Runs against the real backend (demo profile), not mocked WebSocket messages",
+          "type": "behavioral"
+        },
+        {
+          "text": "Finds the seeded PR by its number rather than a hard-coded database id",
+          "type": "behavioral"
+        },
+        {
+          "text": "Asserts the other user's avatar disappears after their context closes",
+          "type": "behavioral"
+        }
       ]
     }
   ]

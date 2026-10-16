@@ -64,6 +64,20 @@ jobs:
       - name: Build
         run: npm run build
 
+  # The Claude skills (.claude/skills/codelens-skills) are the project's coding guidance; keep them in sync with
+  # the code and ADRs: no retired guidance, identical build-and-run copies, every endpoint documented, valid evals.
+  skills-consistency:
+    name: Skills consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check skills against code and docs
+        run: python scripts/check_skill_consistency.py
+
   review-quality-eval:
     name: Review-quality eval gate
     runs-on: ubuntu-latest

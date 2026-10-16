@@ -74,15 +74,15 @@ The mistake to avoid is cancelling siblings in the chunk loop — that throws aw
 `StructuredTaskScope` would express this neatly, but it is a **preview API in Java 21** and this project builds without `--enable-preview`. The equivalent with the virtual-thread executor is only a few lines and ships on a standard build:
 
 ```java
-public ReviewPromptContext gatherContext(long prId) {
+public ReviewPromptContext gatherContext(DiffChunk chunk, ContextSource source, Set<String> changed) {
     try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-        Future<String>       diff    = executor.submit(() -> gitHubService.fetchDiff(prId));
-        Future<List<String>> callers = executor.submit(() -> contextRetriever.callersOf(prId));
-        Future<List<String>> tests   = executor.submit(() -> contextRetriever.testsFor(prId));
+        Future<List<String>> callers = executor.submit(() -> source.callers(chunk.symbols(), changed));
+        Future<List<String>> tests   = executor.submit(() -> source.tests(chunk.symbols(), changed));
+        Future<List<String>> related = executor.submit(() -> source.nearest(embed(chunk), changed, topK));
         try {
-            return new ReviewPromptContext(diff.get(), callers.get(), tests.get());
+            return new ReviewPromptContext(chunk, callers.get(), tests.get(), systemPrompt, related.get());
         } catch (ExecutionException | InterruptedException e) {
-            diff.cancel(true); callers.cancel(true); tests.cancel(true);   // fail together
+            callers.cancel(true); tests.cancel(true); related.cancel(true);   // fail together
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new ContextGatheringException(e.getCause() != null ? e.getCause() : e);
         }

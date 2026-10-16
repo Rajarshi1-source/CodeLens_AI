@@ -399,7 +399,7 @@ CODELENS_IT_EXTERNAL_INFRA=true SPRING_DATASOURCE_URL=jdbc:postgresql://127.0.0.
 
 **Playwright E2E** against a running demo-profile backend: `npm run e2e` builds the SPA and serves it with `vite preview` on :4173 (same `/api` + `/ws` proxy as dev); global setup resets the demo data and saves Alice's and Bob's sessions. `npm run e2e:screenshots` regenerates `docs/images/*.png`. First time: `npx playwright install chromium`.
 
-**Eval** (needs `CODELENS_INTERNAL_ENABLED=true`, which the demo profile sets): `python eval/run_eval.py --ci --ablate-retrieval`; harness unit tests: `python -m pytest eval/test_scoring.py`. After changing cases in `eval/build_testset.py`, run it to regenerate `testset.jsonl`.
+**Eval** (needs `CODELENS_INTERNAL_ENABLED=true`, which the demo profile sets): `python eval/run_eval.py --ci --ablate-retrieval`; harness unit tests: `python -m pytest eval/test_scoring.py`. After changing cases in `eval/build_testset.py`, run it to regenerate `testset.jsonl`. Re-baseline (`--save-baseline`) only with the shipped prompt version — a local `.env` that pins `REVIEW_PROMPT_VERSION` changes the token count and makes CI's cost gate fail against the baseline.
 
 ## 11. Environment variables
 

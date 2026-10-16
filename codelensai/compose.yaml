@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: 'postgres:16-alpine'
+    # pgvector: code_chunks.embedding is vector(512) with an HNSW index (G1 retrieval)
+    image: 'pgvector/pgvector:pg16'
     environment:
       - 'POSTGRES_DB=codelensai'
       - 'POSTGRES_USER=postgres'
@@ -14,7 +15,9 @@ services:
       retries: 5
   redis:
     image: 'redis:7-alpine'
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # volatile-lru: evict only keys with a TTL (caches, presence, replay buffers) — never the review-jobs /
+    # index-jobs streams (no TTL), which allkeys-lru could silently drop under memory pressure.
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
     ports:
       - '6379:6379'
     healthcheck:

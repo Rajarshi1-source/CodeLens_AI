@@ -86,6 +86,23 @@ class RiskScoringServiceTest {
     }
 
     @Test
+    void aCriticalFindingIsNeverLowRisk() {
+        // 15 (no tests) + 12 (1 critical) = 27 -> lifted to the MEDIUM threshold by an explicit reason
+        RiskAssessment a = risk.score(new RiskScoringService.Input(
+                List.of(file("src/main/java/Config.java", 1)), List.of(comment(Severity.CRITICAL, 2)), Map.of()));
+        assertEquals(3, points(a, "CRITICAL_FLOOR"));
+        assertEquals(30, a.score());
+        assertEquals(RiskLevel.MEDIUM, a.level());
+        assertEquals(a.score(), a.reasons().stream().mapToInt(RiskAssessment.Reason::points).sum(), "reasons sum to the score");
+
+        // warnings alone get no floor
+        RiskAssessment w = risk.score(new RiskScoringService.Input(
+                List.of(file("src/main/java/Config.java", 1)), List.of(comment(Severity.WARNING, 2)), Map.of()));
+        assertEquals(RiskLevel.LOW, w.level());
+        assertEquals(0, points(w, "CRITICAL_FLOOR"));
+    }
+
+    @Test
     void ciAndMigrationsAreSensitive() {
         RiskAssessment a = risk.score(new RiskScoringService.Input(
                 List.of(file(".github/workflows/ci.yml", 1), file("db/migrations/V2__users.sql", 1)), List.of(), Map.of()));

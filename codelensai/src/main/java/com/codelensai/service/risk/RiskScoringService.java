@@ -24,7 +24,10 @@ import java.util.regex.Pattern;
  *   <tr><td>size &gt; 500 / &gt; 200 changed lines</td><td>+15 / +8</td></tr>
  *   <tr><td>max fan-in of a changed symbol &ge; 10 / &ge; 3 (from the G1 index)</td><td>+15 / +8</td></tr>
  *   <tr><td>each CRITICAL / WARNING finding</td><td>+12 (max 36) / +4 (max 16)</td></tr>
+ *   <tr><td>floor: any CRITICAL finding lifts the score to the MEDIUM threshold</td><td>+difference</td></tr>
  * </table>
+ * A single committed secret or SQL injection must never read as "low risk", even in a one-line change to a
+ * non-sensitive path; the floor is a reason like any other, so the reasons still sum to the score.
  */
 @Service
 public class RiskScoringService {
@@ -108,6 +111,11 @@ public class RiskScoringService {
         }
 
         int score = Math.max(0, Math.min(100, reasons.stream().mapToInt(RiskAssessment.Reason::points).sum()));
+        if (critical > 0 && score < props.mediumThreshold()) {
+            reasons.add(new RiskAssessment.Reason("CRITICAL_FLOOR",
+                    "A CRITICAL finding makes this at least medium risk", props.mediumThreshold() - score));
+            score = props.mediumThreshold();
+        }
         RiskLevel level = score >= props.highThreshold() ? RiskLevel.HIGH
                 : score >= props.mediumThreshold() ? RiskLevel.MEDIUM : RiskLevel.LOW;
         return new RiskAssessment(score, level, reasons, recommendation(level, critical));

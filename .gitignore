@@ -7,3 +7,4 @@
 # OS / editor noise
 .DS_Store
 Thumbs.db
+eval/negatives.jsonl

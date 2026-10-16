@@ -11,7 +11,8 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector: code_chunks.embedding is vector(512) with an HNSW index (G1 retrieval)
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: codelensai
       POSTGRES_USER: postgres
@@ -30,7 +31,9 @@ services:
 
   redis:
     image: redis:7-alpine
-    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # volatile-lru: evict only keys with a TTL (caches, presence, replay buffers) — never the review-jobs /
+    # index-jobs streams (no TTL), which allkeys-lru could silently drop under memory pressure.
+    command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
     ports:
       - "6379:6379"
     volumes:
@@ -69,6 +72,15 @@ services:
       SUMMARY_MODEL: ${SUMMARY_MODEL:-local-mock}
       LLM_FALLBACK_PROVIDER: ${LLM_FALLBACK_PROVIDER:-local}
       LLM_DAILY_TOKEN_BUDGET: ${LLM_DAILY_TOKEN_BUDGET:-2000000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_REVIEW_MODEL: ${CLAUDE_REVIEW_MODEL:-claude-opus-5-5}
+      CLAUDE_SUMMARY_MODEL: ${CLAUDE_SUMMARY_MODEL:-claude-opus-5-5}
+      CLAUDE_EFFORT: ${CLAUDE_EFFORT:-high}
+      CODELENS_EMBEDDING_PROVIDER: ${CODELENS_EMBEDDING_PROVIDER:-hashing}
+      CODELENS_RETRIEVAL_ENABLED: ${CODELENS_RETRIEVAL_ENABLED:-true}
+      CODELENS_INDEXING_ENABLED: ${CODELENS_INDEXING_ENABLED:-true}
+      CODELENS_INTERNAL_ENABLED: ${CODELENS_INTERNAL_ENABLED:-false}
+      CODELENS_INTERNAL_TOKEN: ${CODELENS_INTERNAL_TOKEN:-}
       REVIEW_PROMPT_VERSION: ${REVIEW_PROMPT_VERSION:-v2}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}

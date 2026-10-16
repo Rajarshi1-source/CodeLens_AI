@@ -78,6 +78,22 @@ class StructureParsersTest {
     }
 
     @Test
+    void callsInsideTemplateLiteralInterpolationsAreReferences() {
+        String src = """
+                export function cartLabel(total: number): string {
+                  const note = `not a call: render(x) } {`;
+                  return `Total: ${formatPrice(total, { cur: "EUR" })} (${count(items)})`;
+                }
+                """;
+        CodeUnit label = parsers.parse("src/cart.ts", src).stream()
+                .filter(u -> u.name().equals("cartLabel")).findFirst().orElseThrow();
+        assertEquals(4, label.endLine());
+        assertTrue(label.calledNames().contains("formatPrice"));
+        assertTrue(label.calledNames().contains("count"));
+        assertTrue(!label.calledNames().contains("render"), "text of a template literal is not code");
+    }
+
+    @Test
     void braceParserHandlesGo() {
         String src = """
                 package main

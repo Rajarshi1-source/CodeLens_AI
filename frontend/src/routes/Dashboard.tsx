@@ -1,8 +1,10 @@
-import { AlertTriangle, Clock, GitPullRequest } from 'lucide-react';
+import { AlertTriangle, Clock, Flame, GitPullRequest } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { StatsCard } from '@/components/dashboard/StatsCard';
 import { SeverityChart } from '@/components/dashboard/SeverityChart';
 import { ReviewCoverage } from '@/components/dashboard/ReviewCoverage';
+import { RiskDistributionChart } from '@/components/dashboard/RiskDistributionChart';
+import { BudgetCard } from '@/components/dashboard/BudgetCard';
 import { ErrorState } from '@/components/common/ErrorState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useDashboard } from '@/hooks/useDashboard';
@@ -28,7 +30,12 @@ export function Dashboard() {
       <h1 className="text-2xl font-semibold">Dashboard</h1>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard label="Total PRs" value={data.totalPullRequests} icon={<GitPullRequest className="h-4 w-4" />} />
-        <StatsCard label="Reviewed" value={data.reviewedPullRequests} />
+        <StatsCard
+          label="High-risk PRs"
+          value={data.riskDistribution.HIGH ?? 0}
+          accentClassName="text-[color:var(--risk-high)]"
+          icon={<Flame className="h-4 w-4" />}
+        />
         <StatsCard label="Avg review time" value={avg} icon={<Clock className="h-4 w-4" />} />
         <StatsCard
           label="Critical findings"
@@ -47,6 +54,17 @@ export function Dashboard() {
           </CardContent>
         </Card>
         <ReviewCoverage reviewed={data.reviewedPullRequests} pending={data.pendingPullRequests} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Pull requests by risk</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RiskDistributionChart distribution={data.riskDistribution} />
+          </CardContent>
+        </Card>
+        <BudgetCard stats={data} />
       </div>
     </div>
   );

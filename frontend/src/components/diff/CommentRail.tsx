@@ -1,9 +1,9 @@
 import { InlineComment } from './InlineComment';
 import { EmptyState } from '@/components/common/EmptyState';
 import { MessageSquare } from 'lucide-react';
-import type { StreamingComment } from '@/types/domain';
+import type { PrId, StreamingComment } from '@/types/domain';
 
-export function CommentRail({ comments }: { comments: StreamingComment[] }) {
+export function CommentRail({ comments, prId }: { comments: StreamingComment[]; prId?: PrId }) {
   if (comments.length === 0) {
     return (
       <div className="p-4">
@@ -18,7 +18,7 @@ export function CommentRail({ comments }: { comments: StreamingComment[] }) {
   return (
     <div className="flex flex-col gap-3 p-4">
       {comments.map((c) => (
-        <InlineComment key={`${c.file}:${c.line}`} comment={c} />
+        <InlineComment key={c.key} comment={c} prId={prId} />
       ))}
     </div>
   );

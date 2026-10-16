@@ -1,74 +1,99 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import { toast } from 'sonner';
 import { useWebSocket } from './useWebSocket';
-import { appendToken, isNewSeq } from '@/lib/reviewStream';
-import { ReviewErrorSchema, ReviewStreamTokenSchema } from '@/types/schemas';
-import type { PrId, ReviewStatus, StreamingComment } from '@/types/domain';
-
-interface ReviewStreamState {
-  comments: StreamingComment[];
-  status: ReviewStatus | null;
-}
+import { EMPTY_STREAM, applyMessage, applyReplay, applyStatus, type StreamState } from '@/lib/reviewStream';
+import { ReplayBatchSchema, ReviewStatusMessageSchema, ReviewTopicMessageSchema } from '@/types/schemas';
+import type { PrId, ReplayBatch, ReviewTopicMessage } from '@/types/domain';
 
 /**
- * Subscribes to a PR's review + status topics. Dedupes by seq (replay-safe), appends tokens by
- * (file,line) anchor, and reconnects via stompjs. Resumes with a `resume-from-seq` header so the
- * backend replays only what was missed.
+ * Live review stream for one PR, resumable across reconnects:
+ *
+ *  1. subscribe to the review + status topics, BUFFERING live messages;
+ *  2. ask `/app/pr/{id}/replay` for everything after our last (session, seq);
+ *  3. apply the replay batch, then the buffered live messages in seq order, then go live.
+ *
+ * A message from a newer review session (re-review) resets the stream; duplicates are dropped by seq.
  */
-export function useReviewStream(prId: PrId): ReviewStreamState {
+export function useReviewStream(prId: PrId): StreamState {
   const { client, connected } = useWebSocket();
-  const [comments, setComments] = useState<StreamingComment[]>([]);
-  const [status, setStatus] = useState<ReviewStatus | null>(null);
-  const lastSeq = useRef(0);
+  const [state, setState] = useState<StreamState>(EMPTY_STREAM);
+  const stateRef = useRef<StreamState>(EMPTY_STREAM);
   const [, startTransition] = useTransition();
+
+  const update = (fn: (s: StreamState) => StreamState) => {
+    stateRef.current = fn(stateRef.current);
+    const next = stateRef.current;
+    startTransition(() => setState(next));
+  };
 
   // Reset accumulated state when switching PRs.
   useEffect(() => {
-    lastSeq.current = 0;
-    setComments([]);
-    setStatus(null);
+    stateRef.current = EMPTY_STREAM;
+    setState(EMPTY_STREAM);
   }, [prId]);
 
   useEffect(() => {
     if (!connected) return;
+    let replaying = true;
+    const pending: ReviewTopicMessage[] = [];
 
-    const reviewSub = client.subscribe(
-      `/topic/pr/${prId}/review`,
-      (message) => {
-        const payload: unknown = JSON.parse(message.body);
-
-        const err = ReviewErrorSchema.safeParse(payload);
-        if (err.success) {
-          toast.error(`Review error in ${err.data.file}: ${err.data.error}`);
-          return;
-        }
-
-        const parsed = ReviewStreamTokenSchema.safeParse(payload);
-        if (!parsed.success) return;
-        const token = parsed.data;
-        if (!isNewSeq(lastSeq.current, token.seq)) return; // drop replays / dupes
-        lastSeq.current = token.seq;
-
-        startTransition(() => {
-          setComments((prev) => appendToken(prev, token));
-        });
-      },
-      { 'resume-from-seq': String(lastSeq.current) },
-    );
-
-    const statusSub = client.subscribe(`/topic/pr/${prId}/status`, (m) => {
-      const next = m.body as ReviewStatus;
-      setStatus(next);
-      if (next === 'COMPLETED') {
-        setComments((prev) => prev.map((c) => ({ ...c, isStreaming: false })));
+    const onTopic = (body: string) => {
+      const parsed = ReviewTopicMessageSchema.safeParse(JSON.parse(body));
+      if (!parsed.success) return;
+      const msg = parsed.data;
+      if (msg.type === 'error') {
+        toast.error(`Review of ${msg.file || 'a file'} failed for one chunk; other findings are unaffected.`);
       }
+      if (replaying) {
+        pending.push(msg);
+        return;
+      }
+      update((s) => applyMessage(s, msg));
+    };
+
+    const reviewSub = client.subscribe(`/topic/pr/${prId}/review`, (m) => onTopic(m.body));
+    const statusSub = client.subscribe(`/topic/pr/${prId}/status`, (m) => {
+      const parsed = ReviewStatusMessageSchema.safeParse(JSON.parse(m.body));
+      if (parsed.success) update((s) => applyStatus(s, parsed.data));
     });
+
+    const { sessionId, lastSeq } = stateRef.current;
+    const replaySub = client.subscribe(
+      `/app/pr/${prId}/replay`,
+      (m) => {
+        const parsed = ReplayBatchSchema.safeParse(JSON.parse(m.body));
+        replaying = false;
+        if (parsed.success) {
+          const items = parsed.data.items
+            .map((i) => ReviewTopicMessageSchema.safeParse(i))
+            .filter((r) => r.success)
+            .map((r) => r.data as ReviewTopicMessage);
+          const batch: ReplayBatch = { ...parsed.data, items };
+          if (batch.sessionId > 0) {
+            update((s) => applyReplay(s, batch, pending));
+          } else {
+            update((s) => pending.reduce(applyMessage, s));
+          }
+        } else {
+          update((s) => pending.reduce(applyMessage, s));
+        }
+        pending.length = 0;
+        replaySub.unsubscribe();
+      },
+      { 'after-seq': String(lastSeq), 'session-id': String(sessionId ?? 0) },
+    );
 
     return () => {
       reviewSub.unsubscribe();
       statusSub.unsubscribe();
+      try {
+        replaySub.unsubscribe();
+      } catch {
+        // already unsubscribed after the reply
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `update` only touches refs/setters
   }, [client, connected, prId]);
 
-  return { comments, status };
+  return state;
 }

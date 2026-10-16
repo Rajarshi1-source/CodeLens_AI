@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { getJson, postVoid } from './api';
+import { getJson, getJsonOrNull, postVoid } from './api';
 import {
   PrDiffResponseSchema,
   PullRequestSchema,
@@ -13,35 +13,40 @@ function toPullRequest(p: z.infer<typeof PullRequestSchema>): PullRequest {
 }
 
 /** Map the backend ReviewCommentDto (filePath/lineNumber/commentText) to the normalized ReviewComment. */
-function toComment(c: z.infer<typeof ReviewCommentDtoSchema>): ReviewComment {
+export function toComment(c: z.infer<typeof ReviewCommentDtoSchema>): ReviewComment {
   return {
+    id: c.id,
+    key: c.fingerprint ?? `${c.filePath}:${c.lineNumber}:${c.ruleKey ?? ''}`,
     file: c.filePath,
     line: c.lineNumber,
     severity: c.severity,
     text: c.commentText,
     codeSuggestion: c.codeSuggestion,
     confidence: c.confidence ?? undefined,
+    ruleKey: c.ruleKey,
+    feedback: c.feedback,
+    apply: c.apply,
   };
 }
 
 export const prService = {
-  list: (): Promise<PullRequest[]> =>
-    getJson('/api/prs', z.array(PullRequestSchema)).then((rows) => rows.map(toPullRequest)),
+  list: (risk?: string): Promise<PullRequest[]> =>
+    getJson(`/api/prs${risk && risk !== 'ALL' ? `?risk=${encodeURIComponent(risk)}` : ''}`, z.array(PullRequestSchema)).then(
+      (rows) => rows.map(toPullRequest),
+    ),
 
   get: (prId: PrId): Promise<PullRequest> =>
     getJson(`/api/prs/${prId}`, PullRequestSchema).then(toPullRequest),
 
+  /** Comments of the PR's latest review (with feedback tallies and apply state). */
   comments: (prId: PrId): Promise<ReviewComment[]> =>
-    getJson(`/api/prs/${prId}/comments`, z.array(ReviewCommentDtoSchema)).then((rows) =>
-      rows.map(toComment),
-    ),
+    getJson(`/api/prs/${prId}/comments`, z.array(ReviewCommentDtoSchema)).then((rows) => rows.map(toComment)),
 
-  summary: (reviewId: number): Promise<ReviewSummary> =>
-    getJson(`/api/reviews/${reviewId}/summary`, ReviewSummarySchema),
+  /** Latest review summary (risk, tokens, cost); null when the PR has never been reviewed. */
+  summary: (prId: PrId): Promise<ReviewSummary | null> => getJsonOrNull(`/api/prs/${prId}/summary`, ReviewSummarySchema),
 
-  /** Raw unified diff for the PR; `diff` is "" when GitHub has no token / the fetch degraded. */
-  diff: (prId: PrId): Promise<string> =>
-    getJson(`/api/prs/${prId}/diff`, PrDiffResponseSchema).then((r) => r.diff),
+  /** Unified diff the review ran against (persisted snapshot); "" when unavailable. */
+  diff: (prId: PrId): Promise<string> => getJson(`/api/prs/${prId}/diff`, PrDiffResponseSchema).then((r) => r.diff),
 
   reReview: (prId: PrId): Promise<void> => postVoid(`/api/prs/${prId}/re-review`),
 };

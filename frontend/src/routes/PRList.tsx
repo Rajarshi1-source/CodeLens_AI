@@ -1,14 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { GitPullRequest } from 'lucide-react';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PRStatusBadge } from '@/components/pr/PRStatusBadge';
+import { RiskBadge } from '@/components/pr/RiskBadge';
 import { PRFilters, filterPullRequests } from '@/components/pr/PRFilters';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ErrorState } from '@/components/common/ErrorState';
@@ -19,9 +13,9 @@ import { useUiStore } from '@/store/uiStore';
 export function PRList() {
   const { data, isLoading, isError, refetch } = usePullRequests();
   const navigate = useNavigate();
-  const { statusFilter, search } = useUiStore();
+  const { statusFilter, riskFilter, search } = useUiStore();
 
-  const filtered = filterPullRequests(data ?? [], statusFilter, search);
+  const filtered = filterPullRequests(data ?? [], statusFilter, search, riskFilter);
 
   return (
     <div className="space-y-4">
@@ -39,7 +33,7 @@ export function PRList() {
           description="Open a PR on a connected repository to see AI reviews here."
         />
       ) : filtered.length === 0 ? (
-        <EmptyState title="No matching pull requests" description="Try adjusting your search or status filter." />
+        <EmptyState title="No matching pull requests" description="Try adjusting your search, risk or status filter." />
       ) : (
         <div className="rounded-lg border">
           <Table>
@@ -48,6 +42,7 @@ export function PRList() {
                 <TableHead className="w-16">PR</TableHead>
                 <TableHead>Title</TableHead>
                 <TableHead>Author</TableHead>
+                <TableHead>Risk</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Changes</TableHead>
               </TableRow>
@@ -58,10 +53,15 @@ export function PRList() {
                   key={pr.id}
                   className="cursor-pointer"
                   onClick={() => navigate(`/prs/${pr.id}`)}
+                  data-testid="pr-row"
+                  data-number={pr.number}
                 >
                   <TableCell className="font-mono text-muted-foreground">#{pr.number}</TableCell>
                   <TableCell className="font-medium">{pr.title}</TableCell>
                   <TableCell>{pr.author}</TableCell>
+                  <TableCell>
+                    <RiskBadge level={pr.riskLevel} score={pr.riskScore} />
+                  </TableCell>
                   <TableCell>
                     <PRStatusBadge status={pr.status} />
                   </TableCell>

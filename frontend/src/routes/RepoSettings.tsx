@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Github, Plus, Trash2 } from 'lucide-react';
+import { DatabaseZap, Github, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { EmptyState } from '@/components/common/EmptyState';
 import { ErrorState } from '@/components/common/ErrorState';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useConnectRepo, useDisconnectRepo, useRepos } from '@/hooks/useRepos';
+import { useConnectRepo, useDisconnectRepo, useReindexRepo, useRepos } from '@/hooks/useRepos';
+import { describeIndex } from '@/lib/format';
 import { RepoId } from '@/types/domain';
 
 const schema = z.object({
@@ -25,6 +26,7 @@ export function RepoSettings() {
   const { data: repos, isLoading, isError, refetch } = useRepos();
   const connect = useConnectRepo();
   const disconnect = useDisconnectRepo();
+  const reindex = useReindexRepo();
 
   const form = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { fullName: '' } });
 
@@ -86,23 +88,38 @@ export function RepoSettings() {
       ) : (
         <div className="space-y-2">
           {repos.map((repo) => (
-            <Card key={repo.id} className="flex items-center justify-between p-4">
-              <div className="flex items-center gap-3">
+            <Card key={repo.id} className="flex flex-wrap items-center justify-between gap-3 p-4" data-testid="repo-row">
+              <div className="flex min-w-0 items-center gap-3">
                 <Github className="h-4 w-4 text-muted-foreground" aria-hidden />
-                <span className="font-mono text-sm">{repo.fullName}</span>
+                <span className="truncate font-mono text-sm">{repo.fullName}</span>
                 <Badge variant={repo.active ? 'secondary' : 'outline'}>
                   {repo.active ? 'Active' : 'Inactive'}
                 </Badge>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Disconnect ${repo.fullName}`}
-                disabled={disconnect.isPending}
-                onClick={() => disconnect.mutate(RepoId(repo.id))}
-              >
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground" data-testid="index-status">
+                  {describeIndex(repo)}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label={`Re-index ${repo.fullName}`}
+                  disabled={reindex.isPending || repo.indexStatus === 'INDEXING' || repo.indexStatus === 'QUEUED'}
+                  onClick={() => reindex.mutate(RepoId(repo.id))}
+                >
+                  <DatabaseZap className="h-4 w-4" aria-hidden />
+                  Re-index
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Disconnect ${repo.fullName}`}
+                  disabled={disconnect.isPending}
+                  onClick={() => disconnect.mutate(RepoId(repo.id))}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

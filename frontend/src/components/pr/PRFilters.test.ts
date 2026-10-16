@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { filterPullRequests } from './PRFilters';
-import type { ReviewStatus } from '@/types/domain';
+import type { ReviewStatus, RiskLevel } from '@/types/domain';
 
 interface Row {
   title: string;
   author: string;
   status: ReviewStatus;
+  riskLevel: RiskLevel | null;
 }
 
 const rows: Row[] = [
-  { title: 'Fix login bug', author: 'alice', status: 'COMPLETED' },
-  { title: 'Add caching', author: 'bob', status: 'IN_PROGRESS' },
-  { title: 'Refactor parser', author: 'carol', status: 'PENDING' },
+  { title: 'Fix login bug', author: 'alice', status: 'COMPLETED', riskLevel: 'HIGH' },
+  { title: 'Add caching', author: 'bob', status: 'IN_PROGRESS', riskLevel: null },
+  { title: 'Refactor parser', author: 'carol', status: 'PENDING', riskLevel: 'LOW' },
 ];
 
 describe('filterPullRequests', () => {
@@ -32,5 +33,11 @@ describe('filterPullRequests', () => {
   it('combines status and search', () => {
     expect(filterPullRequests(rows, 'COMPLETED', 'parser')).toHaveLength(0);
     expect(filterPullRequests(rows, 'COMPLETED', 'login')).toEqual([rows[0]]);
+  });
+
+  it('filters by risk band, excluding unscored PRs', () => {
+    expect(filterPullRequests(rows, 'ALL', '', 'HIGH')).toEqual([rows[0]]);
+    expect(filterPullRequests(rows, 'ALL', '', 'MEDIUM')).toEqual([]);
+    expect(filterPullRequests(rows, 'ALL', '', 'ALL')).toHaveLength(3);
   });
 });

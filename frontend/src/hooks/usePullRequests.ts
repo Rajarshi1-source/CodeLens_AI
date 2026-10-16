@@ -6,7 +6,7 @@ import { PrId, type PullRequest } from '@/types/domain';
 export function usePullRequests() {
   return useQuery<PullRequest[]>({
     queryKey: ['prs'],
-    queryFn: prService.list,
+    queryFn: () => prService.list(),
     staleTime: 15_000,
   });
 }

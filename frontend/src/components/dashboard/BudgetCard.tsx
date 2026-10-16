@@ -1,5 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatUsd } from '@/components/review/CostPanel';
+import { formatUsd } from '@/lib/format';
 import type { DashboardStats } from '@/types/domain';
 
 /** Today's LLM token budget (enforced atomically in Redis) and spend. */

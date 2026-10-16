@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
@@ -34,7 +34,8 @@ export default defineConfig({
       '/api': { target: BACKEND, changeOrigin: true },
       '/ws': { target: BACKEND, changeOrigin: true, ws: true },
       '/oauth2': { target: BACKEND, changeOrigin: true },
-      '/login': { target: BACKEND, changeOrigin: true },
+      // Only the OAuth2 callback — '/login' itself is the SPA's login route.
+      '/login/oauth2': { target: BACKEND, changeOrigin: true },
       '/logout': { target: BACKEND, changeOrigin: true },
     },
   },
@@ -43,5 +44,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    // Playwright specs live in e2e/ and run under @playwright/test, not Vitest.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
   },
 });

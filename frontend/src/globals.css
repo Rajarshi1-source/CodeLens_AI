@@ -38,6 +38,11 @@
   --severity-warning: oklch(0.74 0.16 80);
   --severity-suggestion: oklch(0.68 0.15 155);
 
+  /* PR risk bands (G3) — a separate family from severity: risk grades a whole PR */
+  --risk-high: oklch(0.56 0.2 355);
+  --risk-medium: oklch(0.66 0.16 55);
+  --risk-low: oklch(0.6 0.11 230);
+
   /* diff chrome */
   --diff-added: oklch(0.95 0.05 150);
   --diff-added-text: oklch(0.45 0.12 150);
@@ -74,6 +79,10 @@
   --severity-warning: oklch(0.8 0.15 80);
   --severity-suggestion: oklch(0.72 0.14 155);
 
+  --risk-high: oklch(0.7 0.18 355);
+  --risk-medium: oklch(0.76 0.14 60);
+  --risk-low: oklch(0.72 0.11 230);
+
   --diff-added: oklch(0.28 0.06 150);
   --diff-added-text: oklch(0.8 0.12 150);
   --diff-removed: oklch(0.3 0.07 25);
@@ -102,6 +111,9 @@
   --color-ring: var(--ring);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-risk-high: var(--risk-high);
+  --color-risk-medium: var(--risk-medium);
+  --color-risk-low: var(--risk-low);
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
@@ -139,5 +151,30 @@ progress.coverage-bar::-webkit-progress-value {
 }
 progress.coverage-bar::-moz-progress-bar {
   background-color: var(--severity-suggestion);
+  border-radius: 9999px;
+}
+
+/* Risk score bar: the value takes the color of the PR's risk band. */
+progress.risk-bar {
+  appearance: none;
+  -webkit-appearance: none;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9999px;
+  background-color: var(--muted);
+  --risk-bar-color: var(--risk-low);
+}
+progress.risk-bar[data-risk='HIGH'] { --risk-bar-color: var(--risk-high); }
+progress.risk-bar[data-risk='MEDIUM'] { --risk-bar-color: var(--risk-medium); }
+progress.risk-bar::-webkit-progress-bar {
+  background-color: var(--muted);
+  border-radius: 9999px;
+}
+progress.risk-bar::-webkit-progress-value {
+  background-color: var(--risk-bar-color);
+  border-radius: 9999px;
+}
+progress.risk-bar::-moz-progress-bar {
+  background-color: var(--risk-bar-color);
   border-radius: 9999px;
 }

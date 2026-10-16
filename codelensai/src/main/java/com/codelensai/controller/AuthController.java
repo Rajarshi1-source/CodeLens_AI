@@ -48,7 +48,11 @@ public class AuthController {
     @GetMapping("/config")
     public Map<String, Object> config() {
         boolean demoEnabled = Arrays.asList(env.getActiveProfiles()).contains("demo") && Boolean.TRUE.equals(demo.enabled());
-        return Map.of("demoEnabled", demoEnabled, "githubLoginEnabled", true);
+        // Under the demo profile GitHub sign-in is offered only if a real OAuth app is configured;
+        // otherwise the login page would show a button that can only fail.
+        String clientId = env.getProperty("spring.security.oauth2.client.registration.github.client-id", "");
+        boolean realClient = !clientId.isBlank() && !"placeholder-client-id".equals(clientId);
+        return Map.of("demoEnabled", demoEnabled, "githubLoginEnabled", !demoEnabled || realClient);
     }
 
     @PostMapping("/logout")

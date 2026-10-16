@@ -33,3 +33,15 @@ export function useDisconnectRepo() {
     onError: () => toast.error('Could not disconnect repository'),
   });
 }
+
+export function useReindexRepo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: RepoId) => repoService.reindex(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['repos'] });
+      toast.success('Re-index queued');
+    },
+    onError: () => toast.error('Could not queue re-index'),
+  });
+}
